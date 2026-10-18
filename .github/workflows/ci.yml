@@ -28,6 +28,15 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov
+
+    
+
   frontend:
     name: Frontend Lint & Build
     runs-on: ubuntu-latest
