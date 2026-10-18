@@ -51,3 +51,18 @@ Thumbs.db
 
 # Optional: ignore GitHub workflows cache
 .github/workflows/*.cache
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+htmlcov/
+.coverage
+
+# SQLite runtime databases
+*.db
+*.sqlite
+*.sqlite3

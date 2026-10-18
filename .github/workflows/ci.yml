@@ -1,43 +1,57 @@
-name: CI
+name: INDS CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
 
 jobs:
-  build-and-test:
+  backend:
+    name: Backend Tests
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Checkout source
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) Setup Node with caching for npm
-      - name: Setup Node
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest
+
+  frontend:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "22"
           cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      # 3) Install dependencies
       - name: Install dependencies
         run: npm ci
 
-      # 4) Lint
       - name: Lint
         run: npm run lint
 
-      # 5) Test with coverage
-      - name: Test (with coverage)
-        run: npm test -- --coverage
-
-      # 6) Upload coverage folder as an artifact (viewable in Actions UI)
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-report
-          path: coverage
+      - name: Build
+        run: npm run build
