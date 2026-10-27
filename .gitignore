@@ -66,6 +66,16 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+/data/
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
 
 # Local repository reference
 /structure.txt

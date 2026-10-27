@@ -1,96 +1,58 @@
 # INDS — Intelligent Network Detection & Response
 
-INDS is a Raspberry Pi-based network security platform designed to monitor, detect, and respond to suspicious activity on a protected Wi-Fi network.
+A Raspberry Pi 4B network security project: local threat detection, a React
+dashboard, DeepSeek-assisted analysis, and authorized gateway responses.
 
-## Project Team
+**Team:** Adam Hawash and Firas El Kheshen.
 
-- Adam Hawash
-- Firas El Kheshen
+## Documentation
 
-## Architecture
+- [Overview](docs/overview.md) — architecture, repository structure, and current status.
+- [Database](docs/database.md) — storage, initialization, migrations, and inspection.
+- [Workflow](docs/workflow.md) — discovery, monitoring, detection, analysis, response, and OFF behavior.
 
-Internet
-    |
-Existing Router
-    |
-Ethernet
-    |
-Raspberry Pi (Wi-Fi Gateway)
-    |
-Protected Wi-Fi Clients
+## Development
 
-The Raspberry Pi acts as a network gateway, providing device discovery, traffic monitoring, threat detection, incident management, and administrative response capabilities.
+Use Python 3.12+ and Node.js 22. From the repository root:
 
-## Technology Stack
+```sh
+python -m venv .venv
+```
 
-- Hardware: Raspberry Pi 4 Model B (4 GB RAM)
-- Backend: Python, FastAPI
-- Frontend: React, Vite
-- Database: SQLite (planned)
-- Networking: Linux, Wi-Fi AP, nftables
-- Detection: Python-based monitoring and detection rules
-- AI: Optional DeepSeek API integration
-- CI/CD: GitHub Actions
-- Project Management: Jira Scrum
+Activate with `source .venv/bin/activate` on Linux/macOS or
+`.\.venv\Scripts\Activate.ps1` in PowerShell, then:
 
-## Project Structure
+```sh
+python -m pip install -r backend/requirements-dev.txt
+python -m alembic -c backend/database/alembic.ini upgrade head
+python -m uvicorn backend.main:app --reload
+```
 
-- `backend/` — FastAPI application, HTTP endpoints, and application services
-- `frontend/` — React dashboard
-- `detection/` — Local threat detection rules
-- `tests/` — Automated tests
-- `docs/` — Architecture and repository documentation
+API: `http://127.0.0.1:8000`; API docs: `http://127.0.0.1:8000/docs`.
+In a separate terminal:
 
-See [repository organization](docs/architecture/repository.md) for ownership,
-test placement, and guidance on adding directories. Gateway, AI, persistence,
-and deployment directories will be added when they contain implementation.
+```sh
+cd frontend
+npm ci
+npm run dev
+```
 
-## Backend Development
+## Checks
 
-Create and activate a Python virtual environment:
+From the root with the Python environment active:
 
-    python3 -m venv .venv
-    source .venv/bin/activate
+```sh
+python -m pytest
+python -m alembic -c backend/database/alembic.ini check
+python -m pip check
+```
 
-Install dependencies:
+From `frontend/`:
 
-    pip install -r backend/requirements-dev.txt
+```sh
+npm run lint
+npm run build
+```
 
-Start the API:
-
-    uvicorn backend.main:app --reload
-
-Run tests:
-
-    python -m pytest
-
-## Frontend Development
-
-    cd frontend
-    npm ci
-    npm run dev
-
-Production build:
-
-    npm run build
-
-Lint:
-
-    npm run lint
-
-## Development Workflow
-
-1. Select a Jira User Story.
-2. Create a feature branch containing its Jira issue key.
-3. Implement and test the changes.
-4. Open a Pull Request targeting `main`.
-5. Request review from the other team member.
-6. Merge after successful CI checks and review.
-
-## Project Status
-
-The backend health and device vendor lookup endpoints, incident severity
-classification, port scan detection rule, and React starter application are operational.
-
-Network gateway, traffic collection and monitoring, AI analysis, and response
-functionality are not yet implemented.
+CI runs Python tests and frontend lint/build. Work from a Jira story, use a branch
+containing its issue key, and request teammate review before merging to `main`.
