@@ -35,14 +35,15 @@ The Raspberry Pi acts as a network gateway, providing device discovery, traffic 
 
 ## Project Structure
 
-- `backend/` — API, services, and data models
+- `backend/` — FastAPI application, HTTP endpoints, and application services
 - `frontend/` — React dashboard
-- `gateway/` — Network gateway and firewall
-- `detection/` — Traffic monitoring and detection rules
-- `ai/` — Optional AI integration
+- `detection/` — Local threat detection rules
 - `tests/` — Automated tests
-- `docs/` — Requirements and architecture documentation
-- `scripts/` — Development and deployment scripts
+- `docs/` — Architecture and repository documentation
+
+See [repository organization](docs/architecture/repository.md) for ownership,
+test placement, and guidance on adding directories. Gateway, AI, persistence,
+and deployment directories will be added when they contain implementation.
 
 ## Backend Development
 
@@ -88,6 +89,8 @@ Lint:
 
 ## Project Status
 
-Initial project setup. Backend health endpoint and React starter application are operational.
+The backend health and device vendor lookup endpoints, incident severity
+classification, port scan detection rule, and React starter application are operational.
 
-Network gateway, monitoring, detection, AI analysis, and response functionality are not yet implemented.
+Network gateway, traffic collection and monitoring, AI analysis, and response
+functionality are not yet implemented.
