@@ -7,22 +7,21 @@ analysis with DeepSeek, and apply authorized security responses.
 ## Network architecture
 
 ```text
-Internet → Existing router → Ethernet → Raspberry Pi 4B
-                                           │
-                                  Protected Wi-Fi: INDS-Secure
-                                           │
-                                   Connected devices
+Customers <-> Guest Wi-Fi AP <-> Raspberry Pi inline bridge <-> Router <-> Internet
+                                built-in Ethernet + USB Ethernet
 ```
 
-Devices join the Pi's Wi-Fi so their routed traffic passes through INDS.
-HTTPS contents remain encrypted. Direct traffic between Wi-Fi clients may
-require separate AP controls. See [the workflow](workflow.md) for operation.
+The separate AP provides Wi-Fi. The Pi transparently bridges its two wired ports;
+the existing router remains responsible for DHCP and routing to the internet.
+The AP must have no uplink that bypasses the Pi. HTTPS contents remain encrypted.
+Traffic between clients on the same AP may not cross the Pi.
+See [gateway setup](gateway/setup.md) and [the workflow](workflow.md).
 
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
-| Gateway | Wi-Fi/routing, discovery observations, traffic collection, action execution |
+| Gateway | Independent Ethernet bridging, discovery observations, traffic collection, approved action execution |
 | FastAPI backend | Coordination, inventory, incidents, authorization, database access |
 | Local detection | Analyze observations and return findings |
 | DeepSeek | Cloud-based analysis and response recommendations |
@@ -33,6 +32,7 @@ require separate AP controls. See [the workflow](workflow.md) for operation.
 
 | Location | Contents |
 | --- | --- |
+| `gateway/config/`, `gateway/scripts/` | Host network templates and inspection helpers |
 | `backend/api/` | HTTP endpoints |
 | `backend/services/` | Application logic |
 | `backend/database/` | Configuration, models, sessions, migrations, generated SQL |
@@ -42,8 +42,7 @@ require separate AP controls. See [the workflow](workflow.md) for operation.
 | `docs/` | Overview, database guide, operational workflow |
 | `.github/workflows/` | CI checks |
 
-Create `gateway/`, `ai/deepseek/`, and other directories when implementation
-needs them. Keep runtime files, caches, dependencies, and build output out of Git.
+Create `ai/deepseek/` and other directories only when implementation needs them. Keep runtime files, caches, dependencies, and build output out of Git.
 Local data lives in `data/`; Python regenerates `__pycache__` automatically.
 
 ## Implementation status
@@ -52,7 +51,10 @@ Local data lives in `data/`; Python regenerates `__pycache__` automatically.
 randomized-MAC detection, severity classification, port scan rule, device/incident
 models plus the complete approved relational schema, migrations, tests, and React starter.
 
-**Planned:** gateway setup, discovery, continuous monitoring, DeepSeek integration,
+**Prepared, not hardware-validated:** inline bridge template, setup/recovery guide,
+and forwarding/performance verification checklist in `gateway/` and `docs/gateway/`.
+
+**Planned:** deployed gateway, discovery, continuous monitoring, DeepSeek integration,
 incident workflow, response enforcement, and dashboard controls.
 
 The target is one Pi and one protected network; no networks table is needed.

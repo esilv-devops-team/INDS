@@ -11,6 +11,13 @@ dashboard, DeepSeek-assisted analysis, and authorized gateway responses.
 - [Database](docs/database.md) — storage, initialization, migrations, and inspection.
 - [Workflow](docs/workflow.md) — discovery, monitoring, detection, analysis, response, and OFF behavior.
 
+## Gateway preparation
+
+Start with [gateway organization](gateway/README.md), then the
+[setup guide](docs/gateway/setup.md) and [verification checklist](docs/gateway/verification.md).
+Templates are prepared for the inline AP → Pi → router topology; hardware validation
+is still pending. Forwarding does not depend on the INDS application.
+
 ## Development
 
 Use Python 3.12+ and Node.js 22. From the repository root:

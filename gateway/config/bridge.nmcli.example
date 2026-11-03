@@ -1,0 +1,25 @@
+# Manual reference, not an executable installer. See docs/gateway/setup.md.
+# Use a local console. Replace both placeholders with verified Linux interfaces.
+# Requires NetworkManager with controller/port-type support; check nmcli --version.
+# These commands create profiles inactive first; autoconnect is enabled only after
+# manual activation and verification. Names beginning inds- must be unused.
+
+sudo nmcli connection add type bridge con-name inds-bridge ifname br-inds connection.autoconnect no ipv4.method auto ipv6.method auto bridge.stp yes
+sudo nmcli connection add type ethernet con-name inds-router-port ifname <ROUTER_INTERFACE> controller inds-bridge port-type bridge connection.autoconnect no
+sudo nmcli connection add type ethernet con-name inds-ap-port ifname <AP_INTERFACE> controller inds-bridge port-type bridge connection.autoconnect no
+
+# Before activation, record UUIDs and original autoconnect values for competing
+# Ethernet profiles. Disable their autoconnect manually; do not delete profiles.
+# Activation can disconnect existing Ethernet SSH sessions and change the Pi IP.
+sudo nmcli connection up inds-bridge
+sudo nmcli connection up inds-router-port
+sudo nmcli connection up inds-ap-port
+
+# After connectivity checks succeed, persist all three profiles across reboot.
+sudo nmcli connection modify inds-bridge connection.autoconnect yes
+sudo nmcli connection modify inds-router-port connection.autoconnect yes
+sudo nmcli connection modify inds-ap-port connection.autoconnect yes
+
+# Management DHCP runs on br-inds, not the physical ports. This template does not
+# configure NAT, IP routing, DHCP service, Wi-Fi, packet queues, or firewall rules.
+# STP is enabled; allow convergence time before diagnosing client connectivity.
