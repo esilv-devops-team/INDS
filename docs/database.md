@@ -129,7 +129,8 @@ tests verify its enforcement directly. The related reflection warnings are expec
 - Explicit human approval initially; local administrator accounts, no role/policy tables.
 - AI results are advisory and never overwrite incident scores automatically.
 - Monitoring starts OFF after restart; future coordination must reconcile interrupted runs.
-- OFF preserves connectivity and existing restrictions until expiry or explicit removal.
+- Internal testing OFF preserves connectivity and history, but removes INDS-managed restrictions.
+- Re-enabling monitoring does not automatically reactivate old approvals; reconcile recorded removal state.
 - Expiry/removal must run independently of monitoring. An uncertain executor result is `unknown`, not automatically retried.
 - Rate limits are in kilobits/second, applied separately to upload and download.
 - Target 60-second traffic windows with seven-day retention; retain incident/AI/audit history for 90 days, except records needed by active actions.

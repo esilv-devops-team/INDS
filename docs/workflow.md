@@ -5,12 +5,12 @@ and response controls are not yet implemented.
 
 ## Operating cycle
 
-1. **ON:** the administrator enables monitoring.
+1. **ON (internal testing only):** a developer enables monitoring; this switch is not a café-owner feature.
 2. **Discover:** collect device observations and update the inventory; refresh periodically.
 3. **Monitor:** collect traffic metadata continuously.
 4. **Detect:** run local rules; continue monitoring when nothing suspicious is found.
 5. **Analyze:** persist findings as incidents; DeepSeek assists analysis and recommends responses.
-6. **Authorize:** the backend checks administrator approval or an explicitly approved policy.
+6. **Authorize:** the backend checks explicit administrator approval.
 7. **Respond:** the Pi executes an authorized action, records its result, and continues monitoring.
 
 ```mermaid
@@ -29,8 +29,9 @@ flowchart TD
     APPROVED -->|No| MONITOR
     RESPONSE --> MONITOR
     ENABLED -->|OFF| STOP[Stop monitoring and analysis]
-    STOP --> KEEP[Preserve inventory, incidents, and logs]
-    KEEP --> CONNECTIVITY[Wi-Fi and routing continue]
+    STOP --> CLEAR[Remove INDS-managed restrictions]
+    CLEAR --> KEEP[Preserve inventory, incidents, and logs]
+    KEEP --> CONNECTIVITY[Independent Ethernet forwarding continues]
 ```
 
 ## Data and control boundaries
@@ -42,7 +43,19 @@ flowchart TD
 - Commit database work before network calls; record execution results separately.
 - Local detection and gateway connectivity must not depend on DeepSeek availability.
 
-**OFF stops monitoring and analysis, not connectivity.** Preserve existing data.
-Approved restrictions remain until expiry or explicit removal. Expiry/removal
-must remain operational independently of monitoring. After restart, monitoring
-starts OFF and unfinished runs/actions require reconciliation.
+**OFF stops collection, detection, AI processing, and new security responses.**
+Remove INDS-managed blocks/restrictions while preserving unrelated rules and all
+saved history. Prevent queued or in-flight work from applying actions after OFF;
+discard late AI results. Cleanup is allowed during OFF. Report removal failures
+rather than reporting successful OFF while restrictions remain. Re-enabling
+monitoring must not silently reapply previous blocks without a new approval.
+
+Linux forwarding remains operational independently of the application, database,
+and DeepSeek. The Pi must stay powered and operational; physical failover is out
+of scope. Detection-service failure must not stop forwarding. Automatic removal
+of approved blocks on a crash, distinct from explicit OFF, requires a separate
+crash-cleanup policy.
+
+After restart, monitoring starts OFF. Reconcile unfinished runs/actions and remove
+stale INDS-managed restrictions. These runtime controls are planned, not implemented.
+See [OFF acceptance contract](gateway/off-contract.md) for integration acceptance checks.
