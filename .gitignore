@@ -79,3 +79,6 @@ htmlcov/
 
 # Local repository reference
 /structure.txt
+
+# Machine-specific gateway configuration and evidence
+/gateway/local/
