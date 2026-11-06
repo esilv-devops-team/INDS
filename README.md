@@ -1,4 +1,4 @@
-# INDS — Intelligent Network Detection & Response
+# INDS - Intelligent Network Detection & Response
 
 A Raspberry Pi 4B network security project: local threat detection, a React
 dashboard, DeepSeek-assisted analysis, and authorized gateway responses.
@@ -7,9 +7,9 @@ dashboard, DeepSeek-assisted analysis, and authorized gateway responses.
 
 ## Documentation
 
-- [Overview](docs/overview.md) — architecture, repository structure, and current status.
-- [Database](docs/database.md) — storage, initialization, migrations, and inspection.
-- [Workflow](docs/workflow.md) — discovery, monitoring, detection, analysis, response, and OFF behavior.
+- [Overview](docs/overview.md) - architecture, repository structure, and current status.
+- [Database](docs/database.md) - storage, initialization, migrations, and inspection.
+- [Workflow](docs/workflow.md) - discovery, monitoring, detection, analysis, response, and OFF behavior.
 
 ## Gateway preparation
 
