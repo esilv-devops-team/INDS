@@ -3,6 +3,10 @@
 This is the target operating workflow. Collectors, orchestration, AI integration,
 and response controls are not yet implemented.
 
+The software ON/OFF switch is deferred until we build the internal dashboard and
+monitoring services. For now, the Pi provides persistent network forwarding;
+see the [current scope and follow-up work](gateway/off-contract.md).
+
 ## Operating cycle
 
 1. **ON (internal testing only):** a developer enables monitoring; this switch is not a café-owner feature.
