@@ -42,6 +42,7 @@ class DeviceOut(BaseModel):
     is_trusted: bool
     first_seen_at: datetime
     last_seen_at: datetime
+    open_incidents: int
 
 class DeviceUpdate(BaseModel):
     is_trusted: bool

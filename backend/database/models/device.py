@@ -41,3 +41,8 @@ class Device(Base):
     @validates("mac_address")
     def normalize_address(self, _key, value):
         return normalize_mac(value)
+
+    
+    @property
+    def open_incidents(self):
+        return sum(1 for incident in self.incidents if incident.status != "resolved")

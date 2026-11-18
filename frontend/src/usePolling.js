@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { useAuth } from './auth'
 
@@ -6,6 +6,8 @@ export function usePolling(path, seconds = 10) {
   const { clearSession } = useAuth()
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
+  const [updatedAt, setUpdatedAt] = useState(null)
+  const [version, setVersion] = useState(0)
 
   useEffect(() => {
     let stopped = false
@@ -16,6 +18,7 @@ export function usePolling(path, seconds = 10) {
           if (stopped) return
           setData(result)
           setError('')
+          setUpdatedAt(new Date())
         })
         .catch((err) => {
           if (stopped) return
@@ -33,7 +36,9 @@ export function usePolling(path, seconds = 10) {
       stopped = true
       clearInterval(timer)
     }
-  }, [path, seconds, clearSession])
+  }, [path, seconds, clearSession, version])
 
-  return { data, error }
+  const reload = useCallback(() => setVersion((v) => v + 1), [])
+
+  return { data, error, updatedAt, reload }
 }
