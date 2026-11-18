@@ -6,10 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.api.actions import ActionOut
 from backend.api.auth import get_current_admin
 from backend.api.devices import DeviceOut
 from backend.database.base import utc_now
-from backend.database.models import Administrator, Incident
+from backend.database.models import AIAnalysis, Administrator, Incident, ResponseAction
 from backend.database.session import get_session
 from backend.services.audit import record_event
 
@@ -37,9 +38,23 @@ class IncidentOut(BaseModel):
     resolved_at: datetime | None
 
 
+class AnalysisOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    model: str
+    status: str
+    assessment: dict | None = Field(validation_alias="assessment_json")
+    error_message: str | None
+    requested_at: datetime
+    completed_at: datetime | None
+
+
 class IncidentDetail(IncidentOut):
     evidence: dict = Field(validation_alias="evidence_json")
     source_device: DeviceOut | None
+    analyses: list[AnalysisOut] = []
+    actions: list[ActionOut] = []
 
 
 class StatusUpdate(BaseModel):
@@ -51,6 +66,19 @@ def find_incident(session, incident_id):
     if incident is None:
         raise HTTPException(status_code=404, detail="incident not found")
     return incident
+
+
+def build_detail(session, incident):
+    detail = IncidentDetail.model_validate(incident)
+    analyses = session.scalars(
+        select(AIAnalysis).where(AIAnalysis.incident_id == incident.id).order_by(AIAnalysis.requested_at.desc())
+    ).all()
+    actions = session.scalars(
+        select(ResponseAction).where(ResponseAction.incident_id == incident.id).order_by(ResponseAction.created_at.desc())
+    ).all()
+    detail.analyses = [AnalysisOut.model_validate(analysis) for analysis in analyses]
+    detail.actions = [ActionOut.model_validate(action) for action in actions]
+    return detail
 
 
 @router.get("", response_model=list[IncidentOut])
@@ -72,7 +100,7 @@ def list_incidents(
 
 @router.get("/{incident_id}", response_model=IncidentDetail)
 def get_incident(incident_id: int, session: Session = Depends(get_session), admin: Administrator = Depends(get_current_admin)):
-    return find_incident(session, incident_id)
+    return build_detail(session, find_incident(session, incident_id))
 
 
 @router.patch("/{incident_id}", response_model=IncidentDetail)
@@ -84,7 +112,7 @@ def update_incident(
 ):
     incident = find_incident(session, incident_id)
     if incident.status == data.status:
-        return incident
+        return build_detail(session, incident)
 
     record_event(
         session, "incident.status_changed", admin=admin, incident_id=incident.id,
@@ -93,4 +121,4 @@ def update_incident(
     incident.status = data.status
     incident.resolved_at = utc_now() if data.status == "resolved" else None
     session.commit()
-    return incident
+    return build_detail(session, incident)

@@ -8,7 +8,9 @@ export default function Topbar({ onMenu }) {
   const { admin, logout } = useAuth()
   const { data: status } = usePolling('/api/system/status', 10)
   const location = useLocation()
-  const page = navItems.find((item) => item.path === location.pathname)
+  const page = navItems.find((item) =>
+    item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path),
+  )
 
   return (
     <header className="topbar">

@@ -45,3 +45,8 @@ export function formatUptime(seconds) {
   if (hours > 0) return hours + 'h ' + minutes + 'min'
   return minutes + ' min'
 }
+
+export function readable(text) {
+  const words = text.replaceAll('_', ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}

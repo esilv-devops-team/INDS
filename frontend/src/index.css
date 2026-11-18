@@ -659,3 +659,153 @@ tr:last-child td {
   margin-left: 6px;
   vertical-align: middle;
 }
+
+
+tr.clickable {
+  cursor: pointer;
+}
+
+tr.clickable:hover td {
+  background: var(--panel-light);
+}
+
+tr.selected td {
+  background: var(--panel-light);
+}
+
+tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.incidents-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.incidents-layout.with-detail {
+  grid-template-columns: 1fr 420px;
+}
+
+.incident-detail h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin: 20px 0 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.incident-detail p {
+  margin: 6px 0;
+}
+
+.detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.detail-head h2 {
+  margin-bottom: 4px;
+}
+
+.detail-head p {
+  margin: 0;
+}
+
+.detail-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 12px 0;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.button.small {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.button.secondary {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.details {
+  margin: 0;
+}
+
+.details div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.details dt {
+  color: var(--muted);
+}
+
+.details dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.assessment {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+
+.action {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.action-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.approval {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.approval.pending { color: var(--medium); }
+.approval.approved { color: var(--accent); }
+.approval.rejected { color: var(--critical); }
+
+.confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: var(--panel-light);
+  border-radius: 5px;
+  padding: 8px 10px;
+  margin: 10px 0;
+}
+
+@media (max-width: 1200px) {
+  .incidents-layout.with-detail {
+    grid-template-columns: 1fr;
+  }
+}
