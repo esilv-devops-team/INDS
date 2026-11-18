@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.database.models import AuditEvent
+from backend.database.base import utc_now
+from backend.database.models import AuditEvent, Incident
 from backend.main import app
 
 client = TestClient(app)
@@ -107,3 +110,20 @@ def test_trust_needs_boolean(admin_api):
     response = admin_api.patch("/api/devices/1", json={"is_trusted": "maybe"})
     assert response.status_code == 422
     assert response.json()["error"]["fields"][0]["field"] == "is_trusted"
+
+
+
+def test_devices_count_open_incidents(admin_api, database):
+    engine, _, _ = database
+    admin_api.post("/api/devices/observations", json={"observations": [{"mac": "00:11:22:33:44:55"}]})
+    device_id = admin_api.get("/api/devices").json()[0]["id"]
+
+    incident = {"source_device_id": device_id, "rule_code": "port_scan", "source_ip": "192.168.1.50", "target_ip": "192.168.1.10"}
+    with Session(engine) as session:
+        session.add(Incident(**incident))
+        session.add(Incident(**incident, status="investigating"))
+        session.add(Incident(**incident, status="resolved", resolved_at=utc_now() + timedelta(seconds=1)))
+        session.commit()
+
+    assert admin_api.get("/api/devices").json()[0]["open_incidents"] == 2
+    assert admin_api.get(f"/api/devices/{device_id}").json()["open_incidents"] == 2
