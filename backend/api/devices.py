@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, IPvAnyAddress, field_validator
 from sqlalchemy.orm import Session
 
-from backend.database.models import Device
+from backend.api.auth import get_current_admin
+from backend.database.models import Administrator, Device
 from backend.database.session import get_session
+from backend.services.audit import record_event
 from backend.services.device_inventory import get_all_devices, save_observations
 from backend.services.vendor_lookup import lookup_vendor, normalize_mac
 
@@ -41,6 +43,9 @@ class DeviceOut(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
 
+class DeviceUpdate(BaseModel):
+    is_trusted: bool
+
 
 @router.get("/vendor/{mac}")
 def get_vendor(mac: str):
@@ -63,13 +68,33 @@ def post_observations(data: ObservationList, session: Session = Depends(get_sess
 
 
 @router.get("", response_model=list[DeviceOut])
-def list_devices(session: Session = Depends(get_session)):
+def list_devices(session: Session = Depends(get_session), admin: Administrator = Depends(get_current_admin)):
     return get_all_devices(session)
 
 
 @router.get("/{device_id}", response_model=DeviceOut)
-def get_device(device_id: int, session: Session = Depends(get_session)):
+def get_device(device_id: int, session: Session = Depends(get_session), admin: Administrator = Depends(get_current_admin)):
     device = session.get(Device, device_id)
     if device is None:
         raise HTTPException(status_code=404, detail="device not found")
+    return device
+
+@router.patch("/{device_id}", response_model=DeviceOut)
+def update_device(
+    device_id: int,
+    data: DeviceUpdate,
+    session: Session = Depends(get_session),
+    admin: Administrator = Depends(get_current_admin),
+):
+    device = session.get(Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+
+    if device.is_trusted != data.is_trusted:
+        record_event(
+            session, "device.trust_changed", admin=admin, device_id=device.id,
+            details={"from": device.is_trusted, "to": data.is_trusted},
+        )
+        device.is_trusted = data.is_trusted
+        session.commit()
     return device
