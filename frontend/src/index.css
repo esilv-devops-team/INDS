@@ -613,3 +613,49 @@ tr:last-child td {
     gap: 14px;
   }
 }
+
+
+.bar-fill.good { background: var(--accent); }
+
+.stat-card .bar {
+  margin: 4px 0 2px;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.services {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.services li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.services li:last-child {
+  border-bottom: none;
+}
+
+.state {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.state.ok { background: var(--accent); }
+.state.warn { background: var(--medium); }
+.state.down { background: var(--critical); }
+
+.panel h2 .badge {
+  margin-left: 6px;
+  vertical-align: middle;
+}
