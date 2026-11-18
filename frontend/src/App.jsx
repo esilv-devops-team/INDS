@@ -30,6 +30,7 @@ export default function App() {
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
         <Route path="/incidents" element={<Incidents />} />
+        <Route path="/incidents/:incidentId" element={<Incidents />} />
         <Route path="/statistics" element={<Statistics />} />
         <Route path="/gateway" element={<Gateway />} />
       </Route>

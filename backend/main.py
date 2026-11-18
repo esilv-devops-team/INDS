@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from backend.api.actions import router as actions_router
 from backend.api.auth import router as auth_router
 from backend.api.devices import router as devices_router
 from backend.api.errors import add_error_handlers
@@ -20,6 +21,7 @@ app.include_router(devices_router)
 app.include_router(incidents_router)
 app.include_router(system_router)
 app.include_router(gateway_router)
+app.include_router(actions_router)
 
 
 @app.get("/health")
