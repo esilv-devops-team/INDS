@@ -36,7 +36,7 @@ function toMbits(bytes, seconds) {
 
 export default function Statistics() {
   const [period, setPeriod] = useState('24h')
-  const { data: stats, error, updatedAt } = usePolling('/api/statistics?window=' + period, 30)
+  const { data: stats, error, updatedAt } = usePolling('/api/statistics?window=' + period, 20)
 
   if (error && !stats) return <p className="error">Could not load the statistics: {error}</p>
   if (!stats) return <p className="muted">Loading...</p>

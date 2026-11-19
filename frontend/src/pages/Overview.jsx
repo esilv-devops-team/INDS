@@ -8,10 +8,10 @@ const SEVERITIES = ['Critical', 'High', 'Medium', 'Low']
 
 export default function Overview() {
   const navigate = useNavigate()
-  const { data: status, error } = usePolling('/api/system/status', 10)
-  const { data: incidents } = usePolling('/api/incidents?limit=6', 10)
+  const { data: status, error } = usePolling('/api/system/status')
+  const { data: incidents, error: incidentError } = usePolling('/api/incidents?limit=6')
 
-  if (error) return <p className="error">Could not load the status: {error}</p>
+  if (error && !status) return <p className="error">Could not load the status: {error}</p>
   if (!status) return <p className="muted">Loading...</p>
 
   const counts = status.open_by_severity
@@ -53,7 +53,8 @@ export default function Overview() {
 
         <section className="panel wide">
           <h2>Latest incidents</h2>
-          {!incidents && <p className="muted">Loading...</p>}
+          {!incidents && <p className={incidentError ? 'error' : 'muted'}>{incidentError || 'Loading…'}</p>}
+          {incidents && incidentError && <p className="muted small" role="status">Incident updates delayed.</p>}
           {incidents && incidents.length === 0 && <p className="muted">No incidents yet. The network looks quiet.</p>}
           {incidents && incidents.length > 0 && (
             <table>

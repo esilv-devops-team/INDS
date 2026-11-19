@@ -17,7 +17,7 @@ function matches(device, search) {
 }
 
 export default function Devices() {
-  const { data: devices, error, updatedAt, reload } = usePolling('/api/devices', 10)
+  const { data: devices, error, updatedAt, reload } = usePolling('/api/devices')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [saving, setSaving] = useState(null)

@@ -8,7 +8,7 @@ import { usePolling } from '../usePolling'
 export default function Incidents() {
   const { incidentId } = useParams()
   const navigate = useNavigate()
-  const { data: incidents, error, reload } = usePolling('/api/incidents?limit=200', 10)
+  const { data: incidents, error, reload } = usePolling('/api/incidents?limit=200')
   const [status, setStatus] = useState('active')
   const [severity, setSeverity] = useState('all')
   const [search, setSearch] = useState('')

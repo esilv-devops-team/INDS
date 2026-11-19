@@ -62,7 +62,7 @@ function Assessment({ analysis }) {
 }
 
 export default function IncidentDetail({ id, onChange, onClose }) {
-  const { data: incident, error, reload } = usePolling('/api/incidents/' + id, 10)
+  const { data: incident, error, reload } = usePolling('/api/incidents/' + id)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState('')
   const [confirming, setConfirming] = useState(null)
