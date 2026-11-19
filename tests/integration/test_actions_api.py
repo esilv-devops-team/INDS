@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
-from backend.database.models import AIAnalysis, AuditEvent, Incident, MonitoringRun, ResponseAction
+from backend.database.models import AIAnalysis, Administrator, AuditEvent, Device, Incident, MonitoringRun, ResponseAction
 
 
 def add_incident_with_response(engine):
@@ -76,6 +76,44 @@ def test_detail_shows_analyses_and_actions(admin_api, database):
 
 def test_decision_requires_login(api):
     assert api.post("/api/actions/1/decision", json={"decision": "approved"}).status_code == 401
+
+
+def test_response_history_requires_login(api):
+    assert api.get("/api/actions").status_code == 401
+
+
+def test_response_history_filters_and_keeps_execution_separate(admin_api, database):
+    engine, _, _ = database
+    incident_id, pending_id = add_incident_with_response(engine)
+    created = utc_now()
+    with Session(engine) as session, session.begin():
+        admin = session.scalar(select(Administrator))
+        device = Device(mac_address="DA:A1:19:5C:0E:42")
+        session.add(device)
+        session.flush()
+        device_id = device.id
+        session.get(ResponseAction, pending_id).device = device
+
+        for execution in ("not_applied", "active"):
+            confirmed = execution == "active"
+            session.add(ResponseAction(
+                incident_id=incident_id, device=device,
+                request_key=f"history-{execution}", action_type="block",
+                target_mac=device.mac_address, reason="Repeated reports",
+                approval_status="approved", execution_status=execution,
+                decided_by=admin, created_at=created, decided_at=created,
+                applied_at=created if confirmed else None,
+            ))
+
+    approved = admin_api.get(f"/api/actions?device_id={device_id}&approval=approved").json()
+    assert [action["execution_status"] for action in approved] == ["active", "not_applied"]
+    assert approved[0]["applied_at"] == created.isoformat()
+    assert approved[0]["decided_by"]["username"] == "admin"
+    assert approved[1]["applied_at"] is None
+    assert admin_api.get("/api/actions?execution=active").json() == approved[:1]
+    assert admin_api.get("/api/actions?approval=approved&limit=1&offset=1").json() == approved[1:]
+    assert admin_api.get("/api/actions?device_id=9999").json() == []
+    assert admin_api.get("/api/actions?execution=unsupported").status_code == 422
 
 
 def test_approve_needs_monitoring_on(admin_api, database):

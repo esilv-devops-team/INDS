@@ -131,6 +131,7 @@ function Investigation({ deviceId }) {
           <div className="device-status">
             <span className={recentlySeen ? 'status online' : 'status'}><span className="dot" />{recentlySeen ? 'Recently seen' : 'Inactive'}</span>
             <span className="tag">{device.is_trusted ? 'Trusted' : 'Not trusted'}</span>
+            <Link className="device-link small" to={'/responses?device_id=' + device.id}>Response history</Link>
           </div>
         </div>
         <dl className="device-facts">

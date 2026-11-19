@@ -1,0 +1,112 @@
+.response-history {
+  min-width: 0;
+}
+
+.response-filters,
+.response-states,
+.response-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.response-states {
+  gap: 5px;
+}
+
+.response-execution {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  padding: 2px 7px;
+  font-size: 12px;
+}
+
+.response-execution.active { color: var(--accent); }
+.response-execution.applying,
+.response-execution.removing,
+.response-execution.unknown { color: var(--medium); }
+.response-execution.failed { color: var(--critical); }
+
+.response-record {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--bg);
+}
+
+.response-record summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.response-record summary:hover,
+.response-record[open] summary {
+  background: var(--panel-light);
+}
+
+.response-expand {
+  color: var(--muted);
+}
+
+.response-record[open] .response-expand {
+  transform: rotate(180deg);
+}
+
+.response-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+
+.response-details {
+  padding: 0 12px 12px;
+  overflow-wrap: anywhere;
+}
+
+.response-lifecycle,
+.response-target {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 10px;
+  padding: 9px 0 0;
+  margin: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.response-lifecycle dt,
+.response-target dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.response-lifecycle dd,
+.response-target dd {
+  margin: 4px 0 0;
+}
+
+.response-links .device-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 640px) {
+  .response-record summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .response-record summary > :not(.response-expand) {
+    grid-column: 1;
+  }
+
+  .response-expand {
+    grid-area: 1 / 2;
+  }
+}
