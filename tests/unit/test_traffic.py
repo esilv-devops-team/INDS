@@ -63,3 +63,13 @@ def test_cli_reports_capture_failure(monkeypatch, capsys):
     monkeypatch.setattr(traffic, "sniff", Mock(side_effect=OSError("permission denied")))
     assert traffic.main() == 1
     assert "ap0: permission denied" in capsys.readouterr().err
+
+
+def test_cli_finishes_after_requested_duration(monkeypatch):
+    monkeypatch.setattr(traffic.sys, "argv", ["traffic", "--iface", "ap0", "--duration", "10"])
+    monkeypatch.setattr(traffic, "monotonic", Mock(side_effect=[0, 10]))
+    sniff = Mock()
+    monkeypatch.setattr(traffic, "sniff", sniff)
+
+    assert traffic.main() == 0
+    assert sniff.call_args.kwargs["timeout"] == 10
