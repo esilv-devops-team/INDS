@@ -86,6 +86,8 @@ def list_incidents(
     status: Status | None = None,
     severity: Severity | None = None,
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    source_device_id: int | None = Query(None, ge=1),
     session: Session = Depends(get_session),
     admin: Administrator = Depends(get_current_admin),
 ):
@@ -94,7 +96,9 @@ def list_incidents(
         query = query.where(Incident.status == status)
     if severity:
         query = query.where(Incident.severity == severity)
-    query = query.order_by(Incident.created_at.desc()).limit(limit)
+    if source_device_id is not None:
+        query = query.where(Incident.source_device_id == source_device_id)
+    query = query.order_by(Incident.created_at.desc(), Incident.id.desc()).offset(offset).limit(limit)
     return session.scalars(query).all()
 
 

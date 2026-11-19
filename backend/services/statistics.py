@@ -1,9 +1,12 @@
 from datetime import datetime, timedelta
+from typing import Literal
 
 from sqlalchemy import select
 
 from backend.database.base import utc_now
 from backend.database.models import Device, Incident, TrafficSummary
+
+StatisticsWindow = Literal["1h", "24h", "7d"]
 
 WINDOWS = {
     "1h": (timedelta(hours=1), timedelta(minutes=5)),

@@ -7,9 +7,9 @@ export function formatTime(value) {
   return toDate(value).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-export function timeAgo(value) {
+export function timeAgo(value, now = Date.now()) {
   if (!value) return 'never'
-  const seconds = Math.floor((Date.now() - toDate(value).getTime()) / 1000)
+  const seconds = Math.floor((now - toDate(value).getTime()) / 1000)
   if (seconds < 60) return 'just now'
   if (seconds < 3600) return Math.floor(seconds / 60) + ' min ago'
   if (seconds < 86400) return Math.floor(seconds / 3600) + ' h ago'
