@@ -1,7 +1,7 @@
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
-from backend.database.models import Device
+from backend.database.models import Device, Incident
 from backend.database.session import create_database_engine
 from backend.services.device_inventory import get_all_devices, save_observation, save_observations
 
@@ -63,3 +63,22 @@ def test_inventory_survives_restart(database):
         assert device.mac_address == "B8:27:EB:12:34:56"
         assert device.current_ip == "192.168.1.20"
     new_engine.dispose()
+
+
+def test_inventory_counts_incidents_without_loading_history(database):
+    engine, _, _ = database
+    with Session(engine) as session, session.begin():
+        device = Device(mac_address="00:11:22:33:44:01")
+        session.add(Incident(
+            source_device=device, source_ip="192.0.2.1", target_ip="192.0.2.2",
+            rule_code="port_scan", status="investigating",
+        ))
+        session.add(Device(mac_address="00:11:22:33:44:02"))
+
+    with Session(engine) as session:
+        devices = get_all_devices(session)
+        assert {device.mac_address: device.open_incidents for device in devices} == {
+            "00:11:22:33:44:01": 1,
+            "00:11:22:33:44:02": 0,
+        }
+        assert all("incidents" in inspect(device).unloaded for device in devices)

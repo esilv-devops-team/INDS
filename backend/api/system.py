@@ -37,6 +37,12 @@ def set_monitoring(
 @router.get("/status")
 def system_status(session: Session = Depends(get_session), admin: Administrator = Depends(get_current_admin)):
     run = session.scalar(select(MonitoringRun).where(MonitoringRun.ended_at.is_(None)))
+    stop_reason = None if run else session.scalar(
+        select(MonitoringRun.stop_reason)
+        .where(MonitoringRun.ended_at.is_not(None))
+        .order_by(MonitoringRun.ended_at.desc(), MonitoringRun.id.desc())
+        .limit(1)
+    )
     online_since = utc_now() - timedelta(minutes=ONLINE_MINUTES)
 
     rows = session.execute(
@@ -52,9 +58,10 @@ def system_status(session: Session = Depends(get_session), admin: Administrator 
     return {
         "monitoring": "on" if run else "off",
         "monitoring_since": run.started_at if run else None,
+        "monitoring_stop_reason": stop_reason,
         "devices": session.scalar(select(func.count(Device.id))),
         "online_devices": session.scalar(select(func.count(Device.id)).where(Device.last_seen_at >= online_since)),
         "last_device_seen_at": session.scalar(select(func.max(Device.last_seen_at))),
-        "open_incidents": sum(open_by_severity.values()),
+        "open_incidents": sum(count for _, count in rows),
         "open_by_severity": open_by_severity,
     }

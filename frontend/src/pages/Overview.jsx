@@ -6,6 +6,13 @@ import { usePolling } from '../usePolling'
 
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Low']
 
+function monitoringNote(status) {
+  if (status.monitoring_since) return 'since ' + formatTime(status.monitoring_since)
+  if (status.monitoring_stop_reason === 'failure') return 'previous capture failed'
+  if (status.monitoring_stop_reason === 'interrupted') return 'previous run interrupted'
+  return 'not running'
+}
+
 export default function Overview() {
   const navigate = useNavigate()
   const { data: status, error } = usePolling('/api/system/status')
@@ -22,9 +29,9 @@ export default function Overview() {
     <>
       <div className="stats">
         <StatCard label="Devices" value={status.devices} note={'last seen ' + timeAgo(status.last_device_seen_at)} />
-        <StatCard label="Online now" value={status.online_devices} note="seen in the last 5 min" />
+        <StatCard label="Recently seen" value={status.online_devices} note="seen in the last 5 min" />
         <StatCard
-          label="Open incidents"
+          label="Active incidents"
           value={status.open_incidents}
           note={urgent > 0 ? urgent + ' high or critical' : 'nothing urgent'}
           color={urgent > 0 ? 'var(--high)' : undefined}
@@ -32,14 +39,14 @@ export default function Overview() {
         <StatCard
           label="Monitoring"
           value={status.monitoring.toUpperCase()}
-          note={status.monitoring_since ? 'since ' + formatTime(status.monitoring_since) : 'not running'}
+          note={monitoringNote(status)}
           color={status.monitoring === 'on' ? 'var(--accent)' : 'var(--muted)'}
         />
       </div>
 
       <div className="columns">
         <section className="panel">
-          <h2>Open incidents by severity</h2>
+          <h2>Active incidents by severity</h2>
           {SEVERITIES.map((severity) => (
             <div className="bar-row" key={severity}>
               <span>{severity}</span>

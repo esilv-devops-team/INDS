@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { Outlet } from 'react-router'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
@@ -13,7 +13,9 @@ export default function Layout() {
       <div className="main">
         <Topbar onMenu={() => setMenuOpen(!menuOpen)} />
         <main className="content">
-          <Outlet />
+          <Suspense fallback={<p className="muted" role="status">Loading dashboard view…</p>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

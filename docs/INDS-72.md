@@ -5,7 +5,7 @@ approval or gateway execution, then expand a record for its target, reason,
 operator, timestamps, and any execution error.
 
 Approval and execution appear separately. An approved response can still
-show **Not applied**. **Confirmed active** reflects the recorded gateway
+show **Not applied**. **Reported active** reflects the last recorded gateway
 execution state. The incident view shows the same states.
 
 Use the incident and device links to investigate an action, or open

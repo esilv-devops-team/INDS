@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, String, text
-from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
+from sqlalchemy.orm import Mapped, mapped_column, query_expression, relationship, validates
 
 from backend.database.base import Base, utc_now
 from backend.services.vendor_lookup import normalize_mac
@@ -37,12 +37,14 @@ class Device(Base):
     incidents: Mapped[list["Incident"]] = relationship(
         back_populates="source_device", passive_deletes=True
     )
+    _open_incident_count: Mapped[int | None] = query_expression()
 
     @validates("mac_address")
     def normalize_address(self, _key, value):
         return normalize_mac(value)
 
-    
     @property
     def open_incidents(self):
+        if self._open_incident_count is not None:
+            return self._open_incident_count
         return sum(1 for incident in self.incidents if incident.status != "resolved")

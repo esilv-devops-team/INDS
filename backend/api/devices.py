@@ -10,7 +10,7 @@ from backend.api.auth import get_current_admin
 from backend.database.models import Administrator, Device
 from backend.database.session import get_session
 from backend.services.audit import record_event
-from backend.services.device_inventory import get_all_devices, save_observations
+from backend.services.device_inventory import get_all_devices, get_device_with_incident_count, save_observations
 from backend.services.monitoring import configured_interface
 from backend.services.statistics import StatisticsWindow
 from backend.services.traffic_activity import device_rates, device_traffic_history
@@ -87,7 +87,7 @@ def list_devices(session: Session = Depends(get_session), admin: Administrator =
 
 @router.get("/{device_id}", response_model=DeviceOut)
 def get_device(device_id: int, session: Session = Depends(get_session), admin: Administrator = Depends(get_current_admin)):
-    device = session.get(Device, device_id)
+    device = get_device_with_incident_count(session, device_id)
     if device is None:
         raise HTTPException(status_code=404, detail="device not found")
     return device

@@ -2,6 +2,10 @@ export function toDate(value) {
   return new Date(value.endsWith('Z') ? value : value + 'Z')
 }
 
+export function wasRecentlySeen(lastSeenAt, now) {
+  return now - toDate(lastSeenAt).getTime() <= 5 * 60 * 1000
+}
+
 export function formatTime(value) {
   if (!value) return '-'
   return toDate(value).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })

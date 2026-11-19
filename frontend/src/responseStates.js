@@ -8,7 +8,7 @@ export const approvalLabels = {
 export const executionLabels = {
   not_applied: 'Not applied',
   applying: 'Applying',
-  active: 'Confirmed active',
+  active: 'Reported active',
   removing: 'Removal in progress',
   removed: 'Removed',
   failed: 'Execution failed',
