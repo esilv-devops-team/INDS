@@ -28,8 +28,8 @@ function NodeDetails({ node }) {
 }
 
 export default function Topology() {
-  const inventory = usePolling('/api/devices', 10)
-  const gateway = usePolling('/api/gateway/health', 20)
+  const inventory = usePolling('/api/devices')
+  const gateway = usePolling('/api/gateway/health', 10)
   const [selection, setSelection] = useState('gateway')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')

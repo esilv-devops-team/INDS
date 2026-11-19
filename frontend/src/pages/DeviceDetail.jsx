@@ -12,8 +12,8 @@ const WINDOWS = [['1h', 'Last hour'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 d
 const PAGE_SIZE = 10
 
 function TrafficWindow({ path, period }) {
-  const { data, error } = usePolling(path + '/traffic/history?window=' + period, 30)
-  const { data: rates } = usePolling(path + '/traffic', 30)
+  const { data, error } = usePolling(path + '/traffic/history?window=' + period, 20)
+  const { data: rates } = usePolling(path + '/traffic', 10)
   if (!data) return <p className={error ? 'error' : 'muted'}>{error || 'Loading traffic…'}</p>
 
   const points = data.buckets.map((point) => ({
@@ -66,7 +66,7 @@ function TrafficWindow({ path, period }) {
 function IncidentPage({ deviceId, status, page, onPage }) {
   const filter = status ? '&status=' + status : ''
   const path = '/api/incidents?source_device_id=' + deviceId + '&limit=' + (PAGE_SIZE + 1) + '&offset=' + page * PAGE_SIZE + filter
-  const { data, error } = usePolling(path, 15)
+  const { data, error } = usePolling(path)
   if (!data) return <p className={error ? 'error' : 'muted'}>{error || 'Loading incidents…'}</p>
 
   return (

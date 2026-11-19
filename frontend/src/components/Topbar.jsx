@@ -6,7 +6,7 @@ import { usePolling } from '../usePolling'
 
 export default function Topbar({ onMenu }) {
   const { admin, logout } = useAuth()
-  const { data: status } = usePolling('/api/system/status', 10)
+  const { data: status, error } = usePolling('/api/system/status')
   const location = useLocation()
   const page = navItems.find((item) =>
     item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path),
@@ -19,7 +19,7 @@ export default function Topbar({ onMenu }) {
       </button>
       <h1>{page ? page.label : 'INDS'}</h1>
 
-      {status && (
+      {error ? <span className="pill" role="status">Updates delayed</span> : status && (
         <span className={status.monitoring === 'on' ? 'pill on' : 'pill'}>
           <span className="dot" />
           Monitoring {status.monitoring.toUpperCase()}
