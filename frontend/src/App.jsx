@@ -8,6 +8,7 @@ import Incidents from './pages/Incidents'
 import Login from './pages/Login'
 import Overview from './pages/Overview'
 import Statistics from './pages/Statistics'
+import Topology from './pages/Topology'
 
 export default function App() {
   const { admin, checking } = useAuth()
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/incidents/:incidentId" element={<Incidents />} />
         <Route path="/statistics" element={<Statistics />} />
         <Route path="/gateway" element={<Gateway />} />
+        <Route path="/topology" element={<Topology />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
