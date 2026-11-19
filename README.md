@@ -61,5 +61,7 @@ npm run lint
 npm run build
 ```
 
-CI runs Python tests and frontend lint/build. Work from a Jira story, use a branch
-containing its issue key, and request teammate review before merging to `main`.
+CI runs Python tests and frontend lint/build. Work on one Jira story at a time
+on its own branch with the issue key in the name. Implement the story, review
+and test it, add a short `docs/<issue-key>.md`, then push the branch. Request
+teammate review before merging to `main`.
