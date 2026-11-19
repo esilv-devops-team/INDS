@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -8,10 +8,30 @@ from backend.api.auth import get_current_admin
 from backend.database.base import utc_now
 from backend.database.models import Administrator, Device, Incident, MonitoringRun
 from backend.database.session import get_session
+from backend.services.monitoring import MonitoringError
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 ONLINE_MINUTES = 5
+
+
+@router.post("/monitoring/{command}", status_code=204)
+def set_monitoring(
+    command: str,
+    request: Request,
+    session: Session = Depends(get_session),
+    admin: Administrator = Depends(get_current_admin),
+):
+    controller = request.app.state.monitoring
+    try:
+        if command == "start":
+            controller.start(session.get_bind(), admin)
+        elif command == "stop":
+            controller.stop(session.get_bind(), admin=admin)
+        else:
+            raise HTTPException(status_code=404, detail="unknown monitoring command")
+    except MonitoringError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error
 
 
 @router.get("/status")

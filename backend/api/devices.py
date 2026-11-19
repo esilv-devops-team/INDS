@@ -11,6 +11,7 @@ from backend.database.models import Administrator, Device
 from backend.database.session import get_session
 from backend.services.audit import record_event
 from backend.services.device_inventory import get_all_devices, save_observations
+from backend.services.monitoring import configured_interface
 from backend.services.traffic_activity import device_rates
 from backend.services.vendor_lookup import lookup_vendor, normalize_mac
 
@@ -67,6 +68,8 @@ def get_vendor(mac: str):
 
 @router.post("/observations")
 def post_observations(data: ObservationList, session: Session = Depends(get_session)):
+    if configured_interface():
+        raise HTTPException(status_code=409, detail="device discovery is managed by monitoring")
     observations = []
     for obs in data.observations:
         ip = str(obs.ip) if obs.ip else None

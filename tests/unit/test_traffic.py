@@ -53,7 +53,8 @@ def test_capture_skips_malformed_frames_and_keeps_reading(monkeypatch):
         prn(captured(IP() / UDP()))
 
     monkeypatch.setattr(traffic, "sniff", sniff)
-    traffic.capture_traffic(["ap0", "ap0"], receive, capture_filter="ip")
+    with pytest.raises(OSError, match="ended unexpectedly"):
+        traffic.capture_traffic(["ap0", "ap0"], receive, capture_filter="ip")
     receive.assert_called_once()
     assert receive.call_args.args[0].protocol == "UDP"
 
@@ -73,3 +74,15 @@ def test_cli_finishes_after_requested_duration(monkeypatch):
 
     assert traffic.main() == 0
     assert sniff.call_args.kwargs["timeout"] == 10
+
+
+def test_capture_reuses_open_socket(monkeypatch):
+    monkeypatch.setattr(traffic, "monotonic", Mock(side_effect=[0, 2]))
+    capture_socket = Mock(closed=False)
+    sniff = Mock()
+    monkeypatch.setattr(traffic, "sniff", sniff)
+
+    traffic.capture_traffic(["ap0"], Mock(), duration=2, opened_socket={capture_socket: "ap0"})
+
+    assert sniff.call_args.kwargs["opened_socket"] == {capture_socket: "ap0"}
+    assert "iface" not in sniff.call_args.kwargs

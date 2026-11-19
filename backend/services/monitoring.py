@@ -1,0 +1,158 @@
+"""Own the lifetime of the traffic collector for one gateway API process."""
+
+import logging
+import os
+from threading import Event, Lock, Thread
+
+from sqlalchemy import case, select, update
+from sqlalchemy.orm import Session
+
+from backend.database.base import utc_now
+from backend.database.models import Device, MonitoringRun
+from backend.services.audit import record_event
+from backend.services.device_inventory import save_observation
+from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
+
+logger = logging.getLogger(__name__)
+CAPTURE_SECONDS = 2
+
+
+class MonitoringError(Exception):
+    def __init__(self, status, detail):
+        super().__init__(detail)
+        self.status = status
+
+
+def configured_interface():
+    return os.environ.get("INDS_MONITOR_INTERFACE", "").strip()
+
+
+def open_capture(interface):
+    from scapy.all import conf
+
+    return conf.L2listen(iface=interface)
+
+
+def capture_batch(interface, capture_socket, receive, discoveries):
+    from gateway.discovery import add_device, read_packet
+    from gateway.traffic import capture_traffic
+
+    def observe_device(packet):
+        try:
+            add_device(discoveries, read_packet(packet))
+        except (AttributeError, IndexError, TypeError, ValueError):
+            logger.debug("Skipping malformed discovery packet on %s", interface)
+
+    capture_traffic([interface], receive, duration=CAPTURE_SECONDS,
+                    opened_socket={capture_socket: interface}, on_packet=observe_device)
+
+
+def guest_observations(interface, discoveries):
+    from gateway.discovery import macs_on_port
+
+    guests = macs_on_port(interface)
+    ignored = os.environ.get("INDS_MONITOR_AP_MAC", "").strip().upper()
+    return [device for mac, device in discoveries.items() if mac in guests and mac != ignored]
+
+
+def close_run(engine, reason, *, run_id=None, admin=None):
+    now = utc_now()
+    command = update(MonitoringRun).where(MonitoringRun.ended_at.is_(None))
+    if run_id is not None:
+        command = command.where(MonitoringRun.id == run_id)
+    with Session(engine) as session, session.begin():
+        closed_id = session.execute(command.values(
+            ended_at=case((MonitoringRun.started_at > now, MonitoringRun.started_at), else_=now),
+            stop_reason=reason,
+            stopped_by_id=admin.id if admin else None,
+        ).returning(MonitoringRun.id)).scalar_one_or_none()
+        if closed_id is not None:
+            record_event(session, "monitoring.stop", admin=admin, monitoring_run_id=closed_id,
+                         outcome="failure" if reason == "failure" else "success",
+                         details={"reason": reason})
+
+
+class MonitoringController:
+    def __init__(self):
+        self.lock = Lock()
+        self.stop_event = Event()
+        self.worker = None
+        self.engine = None
+
+    def start(self, engine, admin):
+        with self.lock:
+            if self.worker is not None and self.worker.is_alive():
+                if self.stop_event.is_set():
+                    raise MonitoringError(409, "The previous collector is still stopping.")
+                return
+            interface = configured_interface()
+            if not interface:
+                raise MonitoringError(503, "Set INDS_MONITOR_INTERFACE to the AP-facing port.")
+            with Session(engine) as session:
+                if session.scalar(select(MonitoringRun.id).where(MonitoringRun.ended_at.is_(None))):
+                    raise MonitoringError(409, "Stop the unfinished monitoring run before starting again.")
+
+            try:
+                capture_socket = open_capture(interface)
+            except Exception as error:
+                logger.exception("Unable to open capture on %s", interface)
+                raise MonitoringError(503, f"Unable to open traffic capture on {interface}.") from error
+
+            run_id = None
+            try:
+                with Session(engine) as session, session.begin():
+                    run = MonitoringRun(started_by_id=admin.id)
+                    session.add(run)
+                    session.flush()
+                    record_event(session, "monitoring.start", admin=admin, monitoring_run_id=run.id)
+                    run_id, started_at = run.id, run.started_at
+                self.stop_event.clear()
+                self.worker = Thread(
+                    target=self.collect, args=(engine, interface, capture_socket, run_id, started_at),
+                    name="inds-traffic", daemon=True,
+                )
+                self.worker.start()
+                self.engine = engine
+            except Exception:
+                capture_socket.close()
+                if run_id is not None:
+                    close_run(engine, "failure", run_id=run_id)
+                raise
+
+    def stop(self, engine, *, admin=None):
+        with self.lock:
+            self.stop_event.set()
+            close_run(engine, "administrator" if admin else "shutdown", admin=admin)
+            if self.worker is not None and self.worker.is_alive():
+                self.worker.join(timeout=CAPTURE_SECONDS + 5)
+                if self.worker.is_alive():
+                    raise MonitoringError(503, "Timed out waiting for traffic capture to stop.")
+
+    def shutdown(self):
+        if self.engine is not None:
+            self.stop(self.engine)
+            self.engine = None
+
+    def collect(self, engine, interface, capture_socket, run_id, started_at):
+        try:
+            while not self.stop_event.is_set():
+                with Session(engine) as session:
+                    devices = dict(session.execute(select(Device.mac_address, Device.id)).tuples().all())
+                batch = TrafficAccumulator(devices, started_at)
+                discoveries = {}
+                capture_batch(interface, capture_socket, batch.add, discoveries)
+                if self.stop_event.is_set():
+                    break
+                guests = guest_observations(interface, discoveries) if discoveries else []
+                if batch.windows or guests:
+                    with Session(engine) as session, session.begin():
+                        if not persist_summaries(session, run_id, batch.windows, batch.last_seen):
+                            break
+                        for guest in guests:
+                            save_observation(session, **guest)
+        except Exception:
+            logger.exception("Traffic collector failed on %s", interface)
+            if not self.stop_event.is_set():
+                close_run(engine, "failure", run_id=run_id)
+        finally:
+            capture_socket.close()
