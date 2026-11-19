@@ -17,6 +17,11 @@ Use an administrator session for these API calls:
 - `POST /api/system/monitoring/stop`
 - `GET /api/system/status`
 
-Capture failures close the run. A backend restart closes interrupted runs and
-starts in OFF. The dashboard control belongs to INDS-54. Live Pi validation
-is pending.
+Capture failures close the run and appear in the overview. A backend restart
+closes interrupted runs and starts in OFF. The dashboard control belongs to
+INDS-54.
+
+For Pi validation, start monitoring with a guest connected, generate ordinary
+traffic, and check the device and traffic totals in the dashboard. Stop
+monitoring while the guest is still using the network. Verify that forwarding
+continues, the totals stop changing, and the recorded history stays visible.

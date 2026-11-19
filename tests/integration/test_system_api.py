@@ -47,5 +47,5 @@ def test_status_with_data(admin_api, database):
     assert body["monitoring_since"] is not None
     assert body["devices"] == 2
     assert body["online_devices"] == 1
-    assert body["open_incidents"] == 3
+    assert body["open_incidents"] == 4
     assert body["open_by_severity"] == {"Low": 0, "Medium": 0, "High": 2, "Critical": 1}

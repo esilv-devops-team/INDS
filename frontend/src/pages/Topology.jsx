@@ -1,12 +1,11 @@
 import { ArrowUpRight, Network, Router, Server, Wifi } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { timeAgo, toDate } from '../format'
+import { timeAgo, wasRecentlySeen } from '../format'
 import { usePolling } from '../usePolling'
 import './Topology.css'
 
 const PAGE_SIZE = 12
-const RECENT_MS = 5 * 60 * 1000
 
 function NodeDetails({ node }) {
   return (
@@ -36,7 +35,7 @@ export default function Topology() {
   const [page, setPage] = useState(0)
   const devices = inventory.data || []
   const now = inventory.updatedAt?.getTime()
-  const recent = (device) => now - toDate(device.last_seen_at).getTime() < RECENT_MS
+  const recent = (device) => wasRecentlySeen(device.last_seen_at, now)
   const bridge = gateway.data?.interfaces.find((item) => item.is_bridge)
   const backbone = [
     {

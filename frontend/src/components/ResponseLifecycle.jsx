@@ -7,6 +7,7 @@ export default function ResponseLifecycle({ action }) {
     ['Applied by gateway', action.applied_at],
     ['Removed by gateway', action.removed_at],
     ['Scheduled expiry', action.expires_at],
+    ['Last record update', action.updated_at],
   ]
   return (
     <dl className="response-lifecycle">

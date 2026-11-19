@@ -2,14 +2,8 @@ import { RefreshCw, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '../api'
-import { formatTime, timeAgo, toDate } from '../format'
+import { formatTime, timeAgo, wasRecentlySeen } from '../format'
 import { usePolling } from '../usePolling'
-
-const ONLINE_MINUTES = 5
-
-function isOnline(device) {
-  return Date.now() - toDate(device.last_seen_at).getTime() < ONLINE_MINUTES * 60 * 1000
-}
 
 function matches(device, search) {
   const text = [device.hostname, device.current_ip, device.mac_address, device.vendor].join(' ').toLowerCase()
@@ -38,13 +32,15 @@ export default function Devices() {
   if (error && !devices) return <p className="error">Could not load the devices: {error}</p>
   if (!devices) return <p className="muted">Loading...</p>
 
-  const online = devices.filter(isOnline)
+  const referenceTime = updatedAt.getTime()
+  const recentlySeen = (device) => wasRecentlySeen(device.last_seen_at, referenceTime)
+  const recent = devices.filter(recentlySeen)
   const atRisk = devices.filter((device) => device.open_incidents > 0)
   const trusted = devices.filter((device) => device.is_trusted)
 
   let shown = devices.filter((device) => matches(device, search))
-  if (filter === 'online') shown = shown.filter(isOnline)
-  if (filter === 'offline') shown = shown.filter((device) => !isOnline(device))
+  if (filter === 'recent') shown = shown.filter(recentlySeen)
+  if (filter === 'inactive') shown = shown.filter((device) => !recentlySeen(device))
   if (filter === 'risk') shown = shown.filter((device) => device.open_incidents > 0)
   if (filter === 'trusted') shown = shown.filter((device) => device.is_trusted)
 
@@ -52,8 +48,8 @@ export default function Devices() {
     <>
       <div className="summary">
         <span><b>{devices.length}</b> devices</span>
-        <span><b className="green">{online.length}</b> online</span>
-        <span><b>{devices.length - online.length}</b> offline</span>
+        <span><b className="green">{recent.length}</b> recently seen</span>
+        <span><b>{devices.length - recent.length}</b> inactive</span>
         <span><b className={atRisk.length > 0 ? 'orange' : ''}>{atRisk.length}</b> at risk</span>
         <span><b>{trusted.length}</b> trusted</span>
       </div>
@@ -68,8 +64,8 @@ export default function Devices() {
           />
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">All devices</option>
-            <option value="online">Online</option>
-            <option value="offline">Offline</option>
+            <option value="recent">Recently seen</option>
+            <option value="inactive">Inactive</option>
             <option value="risk">At risk</option>
             <option value="trusted">Trusted</option>
           </select>
@@ -84,7 +80,7 @@ export default function Devices() {
         {actionError && <p className="error">{actionError}</p>}
 
         {devices.length === 0 ? (
-          <p className="muted">No devices yet. Start the discovery sniffer on the gateway and they will show up here.</p>
+          <p className="muted">No devices observed yet. Devices appear here after the gateway discovers them.</p>
         ) : shown.length === 0 ? (
           <p className="muted">No device matches this search.</p>
         ) : (
@@ -105,9 +101,9 @@ export default function Devices() {
               {shown.map((device) => (
                 <tr key={device.id}>
                   <td>
-                    <span className={isOnline(device) ? 'status online' : 'status'}>
+                    <span className={recentlySeen(device) ? 'status online' : 'status'}>
                       <span className="dot" />
-                      {isOnline(device) ? 'Online' : 'Offline'}
+                      {recentlySeen(device) ? 'Recently seen' : 'Inactive'}
                     </span>
                   </td>
                   <td>
@@ -125,10 +121,10 @@ export default function Devices() {
                     )}
                   </td>
                   <td>{formatTime(device.first_seen_at)}</td>
-                  <td>{timeAgo(device.last_seen_at)}</td>
+                  <td>{timeAgo(device.last_seen_at, referenceTime)}</td>
                   <td>
                     {device.open_incidents > 0 ? (
-                      <span className="badge high">{device.open_incidents} open</span>
+                      <span className="badge high">{device.open_incidents} active</span>
                     ) : (
                       <span className="muted">None</span>
                     )}

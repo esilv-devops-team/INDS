@@ -1,7 +1,8 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm import with_expression
 
 from backend.database.base import utc_now
-from backend.database.models import Device
+from backend.database.models import Device, Incident
 from backend.services.vendor_lookup import lookup_vendor, normalize_mac
 
 
@@ -34,4 +35,20 @@ def save_observations(session, observations):
 
 
 def get_all_devices(session):
-    return session.scalars(select(Device).order_by(Device.last_seen_at.desc())).all()
+    return session.scalars(
+        select(Device).options(active_incident_counts()).order_by(Device.last_seen_at.desc(), Device.id)
+    ).all()
+
+
+def get_device_with_incident_count(session, device_id):
+    return session.get(Device, device_id, options=(active_incident_counts(),))
+
+
+def active_incident_counts():
+    count = (
+        select(func.count(Incident.id))
+        .where(Incident.source_device_id == Device.id, Incident.status != "resolved")
+        .correlate(Device)
+        .scalar_subquery()
+    )
+    return with_expression(Device._open_incident_count, count)

@@ -55,6 +55,7 @@ def test_ingests_device_activity_and_exposes_rates(database, admin_api):
         assert summaries[client_id].bytes_received == 300
         assert summaries[peer_id].bytes_received == 150
         assert session.get(Device, client_id).last_seen_at == seen_at + timedelta(seconds=1)
+        assert session.get(Device, peer_id).last_seen_at == seen_at - timedelta(minutes=1)
 
     response = admin_api.get(f"/api/devices/{client_id}/traffic")
     assert response.status_code == 200

@@ -63,7 +63,9 @@ def test_start_collect_and_stop(admin_api, database, controller, monkeypatch):
     assert admin_api.post("/api/devices/observations", json={"observations": []}).status_code == 409
     assert admin_api.post("/api/system/monitoring/stop").status_code == 204
     assert admin_api.post("/api/system/monitoring/stop").status_code == 204
-    assert admin_api.get("/api/system/status").json()["monitoring"] == "off"
+    status = admin_api.get("/api/system/status").json()
+    assert status["monitoring"] == "off"
+    assert status["monitoring_stop_reason"] == "administrator"
     open_socket.assert_called_once_with("ap0")
     capture_socket.close.assert_called_once()
 
@@ -94,7 +96,9 @@ def test_capture_open_and_worker_failures(admin_api, database, controller, monke
     assert admin_api.post("/api/system/monitoring/start").status_code == 204
     controller.worker.join(5)
     assert not controller.worker.is_alive()
-    assert admin_api.get("/api/system/status").json()["monitoring"] == "off"
+    status = admin_api.get("/api/system/status").json()
+    assert status["monitoring"] == "off"
+    assert status["monitoring_stop_reason"] == "failure"
     with Session(engine) as session:
         assert session.scalar(select(MonitoringRun)).stop_reason == "failure"
     capture_socket.close.assert_called_once()

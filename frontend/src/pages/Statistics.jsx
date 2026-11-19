@@ -38,9 +38,31 @@ export default function Statistics() {
   const [period, setPeriod] = useState('24h')
   const { data: stats, error, updatedAt } = usePolling('/api/statistics?window=' + period, 20)
 
-  if (error && !stats) return <p className="error">Could not load the statistics: {error}</p>
-  if (!stats) return <p className="muted">Loading...</p>
+  return (
+    <>
+      <div className="toolbar">
+        <div className="segmented">
+          {WINDOWS.map((item) => (
+            <button key={item.value} className={item.value === period ? 'active' : ''}
+              aria-pressed={item.value === period} onClick={() => setPeriod(item.value)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+        {stats && (
+          <span className="muted updated">
+            {stats.bucket_minutes < 60 ? stats.bucket_minutes + ' min' : stats.bucket_minutes / 60 + ' h'} per point
+            {' · Updated ' + updatedAt.toLocaleTimeString('en-GB')}
+          </span>
+        )}
+      </div>
+      {error && <p className="error" role="status">{stats ? 'Statistics refresh failed. Showing the last available data.' : error}</p>}
+      {stats ? <StatisticsCharts stats={stats} /> : !error && <p className="muted" role="status">Loading statistics…</p>}
+    </>
+  )
+}
 
+function StatisticsCharts({ stats }) {
   const points = stats.buckets.map((bucket) => ({
     ...bucket,
     label: axisLabel(bucket.start, stats.window),
@@ -54,20 +76,6 @@ export default function Statistics() {
 
   return (
     <>
-      <div className="toolbar">
-        <div className="segmented">
-          {WINDOWS.map((item) => (
-            <button key={item.value} className={item.value === period ? 'active' : ''} onClick={() => setPeriod(item.value)}>
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <span className="muted updated">
-          {stats.bucket_minutes < 60 ? stats.bucket_minutes + ' min' : stats.bucket_minutes / 60 + ' h'} per point
-          {updatedAt && ' - updated ' + updatedAt.toLocaleTimeString('en-GB')}
-        </span>
-      </div>
-
       <div className="stats">
         <StatCard
           label="Traffic"

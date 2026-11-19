@@ -5,7 +5,7 @@ import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, X
 import { axisProps, colors, tooltipProps } from '../chartTheme'
 import SeverityBadge from '../components/SeverityBadge'
 import StatCard from '../components/StatCard'
-import { formatBytes, formatRate, formatTime, readable, timeAgo, toDate } from '../format'
+import { formatBytes, formatRate, formatTime, readable, timeAgo, toDate, wasRecentlySeen } from '../format'
 import { usePolling } from '../usePolling'
 
 const WINDOWS = [['1h', 'Last hour'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days']]
@@ -109,7 +109,7 @@ function Investigation({ deviceId }) {
 
   if (!device) return <p className={error ? 'error' : 'muted'}>{error || 'Loading device…'}</p>
 
-  const recentlySeen = updatedAt.getTime() - toDate(device.last_seen_at).getTime() < 5 * 60 * 1000
+  const recentlySeen = wasRecentlySeen(device.last_seen_at, updatedAt.getTime())
   const facts = [
     ['IP address', device.current_ip || 'Unknown'],
     ['MAC address', device.mac_address],

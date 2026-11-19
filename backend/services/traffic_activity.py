@@ -62,9 +62,9 @@ class TrafficAccumulator:
             device_id = self.devices.get(mac.upper())
             if device_id is None:
                 continue
-            self.last_seen[device_id] = max(self.last_seen.get(device_id, seen_at), seen_at)
             counters = self.windows.setdefault((device_id, window), Counters())
             if outbound:
+                self.last_seen[device_id] = max(self.last_seen.get(device_id, seen_at), seen_at)
                 counters.bytes_sent += observation.captured_bytes
                 counters.packets_sent += 1
             else:
