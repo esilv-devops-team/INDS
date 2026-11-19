@@ -62,7 +62,10 @@ def read_fdb(output):
 
 
 def macs_on_port(port):
-    result = subprocess.run(["bridge", "fdb", "show", "brport", port], capture_output=True, text=True)
+    result = subprocess.run(
+        ["bridge", "fdb", "show", "brport", port],
+        capture_output=True, text=True, timeout=3, check=True,
+    )
     return read_fdb(result.stdout)
 
 

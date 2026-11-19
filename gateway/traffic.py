@@ -88,8 +88,12 @@ def read_metadata(packet):
     )
 
 
-def capture_traffic(interfaces, on_metadata, *, capture_filter=None, duration=None):
+def capture_traffic(
+    interfaces, on_metadata, *, capture_filter=None, duration=None, opened_socket=None, on_packet=None,
+):
     def handle_packet(packet):
+        if on_packet is not None:
+            on_packet(packet)
         try:
             metadata = read_metadata(packet)
         except (AttributeError, IndexError, TypeError, ValueError, Scapy_Exception):
@@ -99,14 +103,21 @@ def capture_traffic(interfaces, on_metadata, *, capture_filter=None, duration=No
             on_metadata(metadata)
 
     options = {} if duration is None else {"timeout": duration}
+    if opened_socket is None:
+        options["iface"] = list(dict.fromkeys(interfaces))
+    else:
+        options["opened_socket"] = opened_socket
+    started = monotonic() if duration is not None else None
     sniff(
-        iface=list(dict.fromkeys(interfaces)),
         filter=capture_filter,
         prn=handle_packet,
         store=False,
         chainCC=True,
         **options,
     )
+    if (started is None or monotonic() - started < duration
+            or (opened_socket and any(socket.closed for socket in opened_socket))):
+        raise OSError("capture ended unexpectedly")
 
 
 def main():
@@ -122,7 +133,6 @@ def main():
         print(json.dumps(asdict(metadata)), flush=True)
 
     try:
-        started = monotonic()
         capture_traffic(args.iface, write_metadata, capture_filter=args.filter, duration=args.duration)
     except KeyboardInterrupt:
         return 0
@@ -130,10 +140,7 @@ def main():
         print(f"Traffic capture failed on {', '.join(args.iface)}: {error}", file=sys.stderr)
         return 1
 
-    if args.duration is not None and monotonic() - started >= args.duration:
-        return 0
-    print(f"Traffic capture ended unexpectedly on {', '.join(args.iface)}", file=sys.stderr)
-    return 1
+    return 0
 
 
 if __name__ == "__main__":

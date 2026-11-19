@@ -39,35 +39,48 @@ def minute_start(moment):
     return moment.replace(second=0, microsecond=0)
 
 
-def summarize_observations(lines, devices, started_at):
-    windows = {}
-    last_seen = {}
-    skipped = 0
-    for line in lines:
-        try:
-            observation = Observation.model_validate_json(line)
-            seen_at = datetime.fromtimestamp(observation.timestamp, UTC).replace(tzinfo=None)
-        except (ValidationError, ValueError, OverflowError, OSError):
-            skipped += 1
-            continue
-        if seen_at < started_at or seen_at > utc_now():
-            skipped += 1
-            continue
+class TrafficAccumulator:
+    def __init__(self, devices, started_at):
+        self.devices = devices
+        self.started_at = started_at
+        self.windows = {}
+        self.last_seen = {}
+        self.skipped = 0
 
+    def add(self, observation):
+        try:
+            seen_at = datetime.fromtimestamp(observation.timestamp, UTC).replace(tzinfo=None)
+        except (ValueError, OverflowError, OSError):
+            self.skipped += 1
+            return
+        if seen_at < self.started_at or seen_at > utc_now():
+            self.skipped += 1
+            return
         window = minute_start(seen_at)
         for mac, outbound in ((observation.source_mac, True), (observation.destination_mac, False)):
-            device_id = devices.get(mac)
+            device_id = self.devices.get(mac.upper())
             if device_id is None:
                 continue
-            last_seen[device_id] = max(last_seen.get(device_id, seen_at), seen_at)
-            counters = windows.setdefault((device_id, window), Counters())
+            self.last_seen[device_id] = max(self.last_seen.get(device_id, seen_at), seen_at)
+            counters = self.windows.setdefault((device_id, window), Counters())
             if outbound:
                 counters.bytes_sent += observation.captured_bytes
                 counters.packets_sent += 1
             else:
                 counters.bytes_received += observation.captured_bytes
                 counters.packets_received += 1
-    return windows, last_seen, skipped
+
+
+def summarize_observations(lines, devices, started_at):
+    totals = TrafficAccumulator(devices, started_at)
+    for line in lines:
+        try:
+            observation = Observation.model_validate_json(line)
+        except ValidationError:
+            totals.skipped += 1
+            continue
+        totals.add(observation)
+    return totals.windows, totals.last_seen, totals.skipped
 
 
 def persist_summaries(session, run_id, windows, last_seen):
