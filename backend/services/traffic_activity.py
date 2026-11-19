@@ -9,6 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 
 from backend.database.base import utc_now
 from backend.database.models import Device, MonitoringRun, TrafficSummary
+from backend.services.statistics import WINDOWS, floor_time
 from backend.services.vendor_lookup import normalize_mac
 
 MINUTE = timedelta(minutes=1)
@@ -130,4 +131,46 @@ def device_rates(session, device_id):
         "window_end": end,
         "upload_bps": sent * 8 / RATE_WINDOW.total_seconds(),
         "download_bps": received * 8 / RATE_WINDOW.total_seconds(),
+    }
+
+
+def device_traffic_history(session, device_id, window):
+    length, size = WINDOWS[window]
+    now = utc_now()
+    start = floor_time(now, size) + size - length
+    seconds = int(size.total_seconds())
+    buckets = []
+    for index in range(length // size):
+        point = start + index * size
+        buckets.append({
+            "start": point,
+            "seconds": max(1, min(seconds, (now - point).total_seconds())),
+            "download": 0,
+            "upload": 0,
+            "packets": 0,
+        })
+
+    rows = session.execute(select(
+        TrafficSummary.window_start,
+        func.sum(TrafficSummary.bytes_received),
+        func.sum(TrafficSummary.bytes_sent),
+        func.sum(TrafficSummary.packets_received + TrafficSummary.packets_sent),
+    ).where(
+        TrafficSummary.device_id == device_id,
+        TrafficSummary.window_start >= start,
+        TrafficSummary.window_start <= now,
+    ).group_by(TrafficSummary.window_start))
+    for observed_at, received, sent, packets in rows:
+        bucket = buckets[(observed_at - start) // size]
+        bucket["download"] += received
+        bucket["upload"] += sent
+        bucket["packets"] += packets
+
+    return {
+        "window": window,
+        "bucket_minutes": int(size / MINUTE),
+        "buckets": buckets,
+        "download": sum(bucket["download"] for bucket in buckets),
+        "upload": sum(bucket["upload"] for bucket in buckets),
+        "packets": sum(bucket["packets"] for bucket in buckets),
     }

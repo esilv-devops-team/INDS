@@ -1,5 +1,6 @@
 import { RefreshCw, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { api } from '../api'
 import { formatTime, timeAgo, toDate } from '../format'
 import { usePolling } from '../usePolling'
@@ -110,8 +111,10 @@ export default function Devices() {
                     </span>
                   </td>
                   <td>
-                    <div>{device.hostname || <span className="muted">Unknown name</span>}</div>
-                    <div className="mono muted">{device.mac_address}</div>
+                    <Link className="device-link" to={'/devices/' + device.id}>
+                      {device.hostname || device.mac_address}
+                    </Link>
+                    {device.hostname && <div className="mono muted">{device.mac_address}</div>}
                   </td>
                   <td className="mono">{device.current_ip || '-'}</td>
                   <td>

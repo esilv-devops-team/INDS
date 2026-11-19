@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router'
 import { useAuth } from './auth'
 import Layout from './components/Layout'
+import DeviceDetail from './pages/DeviceDetail'
 import Devices from './pages/Devices'
 import Gateway from './pages/Gateway'
 import Incidents from './pages/Incidents'
@@ -29,6 +30,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
+        <Route path="/devices/:deviceId" element={<DeviceDetail />} />
         <Route path="/incidents" element={<Incidents />} />
         <Route path="/incidents/:incidentId" element={<Incidents />} />
         <Route path="/statistics" element={<Statistics />} />

@@ -12,7 +12,8 @@ from backend.database.session import get_session
 from backend.services.audit import record_event
 from backend.services.device_inventory import get_all_devices, save_observations
 from backend.services.monitoring import configured_interface
-from backend.services.traffic_activity import device_rates
+from backend.services.statistics import StatisticsWindow
+from backend.services.traffic_activity import device_rates, device_traffic_history
 from backend.services.vendor_lookup import lookup_vendor, normalize_mac
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -100,6 +101,18 @@ def get_device_traffic(
     if session.get(Device, device_id) is None:
         raise HTTPException(status_code=404, detail="device not found")
     return device_rates(session, device_id)
+
+
+@router.get("/{device_id}/traffic/history")
+def get_device_traffic_history(
+    device_id: int,
+    window: StatisticsWindow = "24h",
+    session: Session = Depends(get_session),
+    admin: Administrator = Depends(get_current_admin),
+):
+    if session.get(Device, device_id) is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    return device_traffic_history(session, device_id, window)
 
 
 @router.patch("/{device_id}", response_model=DeviceOut)
