@@ -3,24 +3,10 @@ import { useState } from 'react'
 import { api } from '../api'
 import { formatTime, readable } from '../format'
 import { usePolling } from '../usePolling'
+import { actionName } from '../responseStates'
+import ResponseLifecycle from './ResponseLifecycle'
+import ResponseStatus from './ResponseStatus'
 import SeverityBadge from './SeverityBadge'
-
-const APPROVAL_LABELS = {
-  pending: 'Waiting for approval',
-  approved: 'Approved',
-  rejected: 'Rejected',
-  cancelled: 'Cancelled',
-}
-
-const EXECUTION_LABELS = {
-  not_applied: 'waiting for the gateway',
-  applying: 'being applied',
-  active: 'active on the gateway',
-  removing: 'being removed',
-  removed: 'removed',
-  failed: 'failed',
-  unknown: 'unknown',
-}
 
 function showValue(value) {
   if (Array.isArray(value)) return value.join(', ')
@@ -158,8 +144,8 @@ export default function IncidentDetail({ id, onChange, onClose }) {
       {incident.actions.map((action) => (
         <div className="action" key={action.id}>
           <div className="action-head">
-            <b>{action.action_type === 'block' ? 'Block the device' : 'Limit to ' + action.rate_limit_kbps + ' kbit/s'}</b>
-            <span className={'approval ' + action.approval_status}>{APPROVAL_LABELS[action.approval_status]}</span>
+            <b>{actionName(action)}{action.rate_limit_kbps && ' · ' + action.rate_limit_kbps + ' kbit/s'}</b>
+            <ResponseStatus action={action} />
           </div>
           <div className="mono muted small">
             {action.target_mac}
@@ -180,7 +166,7 @@ export default function IncidentDetail({ id, onChange, onClose }) {
 
           {confirming?.id === action.id && (
             <div className="confirm">
-              <span>{confirming.decision === 'approved' ? 'Send this action to the gateway?' : 'Reject this proposal?'}</span>
+              <span>{confirming.decision === 'approved' ? 'Record approval for this proposal?' : 'Reject this proposal?'}</span>
               <button
                 className="button small"
                 disabled={busy}
@@ -192,12 +178,7 @@ export default function IncidentDetail({ id, onChange, onClose }) {
             </div>
           )}
 
-          {action.decided_by && (
-            <p className="muted small">
-              {APPROVAL_LABELS[action.approval_status]} by {action.decided_by.username}, {formatTime(action.decided_at)}
-              {action.approval_status === 'approved' && ' - gateway: ' + EXECUTION_LABELS[action.execution_status]}
-            </p>
-          )}
+          <ResponseLifecycle action={action} />
           {action.error_message && <p className="error small">{action.error_message}</p>}
         </div>
       ))}

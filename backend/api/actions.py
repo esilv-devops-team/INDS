@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from backend.api.auth import get_current_admin
 from backend.database.base import utc_now
@@ -13,6 +13,9 @@ from backend.database.session import get_session
 from backend.services.audit import record_event
 
 router = APIRouter(prefix="/api/actions", tags=["actions"])
+
+ApprovalStatus = Literal["pending", "approved", "rejected", "cancelled"]
+ExecutionStatus = Literal["not_applied", "applying", "active", "removing", "removed", "failed", "unknown"]
 
 
 class AdminName(BaseModel):
@@ -26,6 +29,7 @@ class ActionOut(BaseModel):
 
     id: int
     incident_id: int | None
+    device_id: int | None
     action_type: str
     target_mac: str
     target_ip: str | None
@@ -37,10 +41,35 @@ class ActionOut(BaseModel):
     execution_status: str
     error_message: str | None
     created_at: datetime
+    updated_at: datetime
+    applied_at: datetime | None
+    expires_at: datetime | None
+    removed_at: datetime | None
 
 
 class Decision(BaseModel):
     decision: Literal["approved", "rejected"]
+
+
+@router.get("", response_model=list[ActionOut])
+def list_actions(
+    approval: ApprovalStatus | None = None,
+    execution: ExecutionStatus | None = None,
+    device_id: int | None = Query(None, ge=1),
+    limit: int = Query(21, ge=1, le=101),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+    admin: Administrator = Depends(get_current_admin),
+):
+    query = select(ResponseAction).options(joinedload(ResponseAction.decided_by))
+    if approval is not None:
+        query = query.where(ResponseAction.approval_status == approval)
+    if execution is not None:
+        query = query.where(ResponseAction.execution_status == execution)
+    if device_id is not None:
+        query = query.where(ResponseAction.device_id == device_id)
+    query = query.order_by(ResponseAction.created_at.desc(), ResponseAction.id.desc()).offset(offset).limit(limit)
+    return session.scalars(query).all()
 
 
 @router.post("/{action_id}/decision", response_model=ActionOut)

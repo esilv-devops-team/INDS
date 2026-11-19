@@ -7,6 +7,7 @@ import Gateway from './pages/Gateway'
 import Incidents from './pages/Incidents'
 import Login from './pages/Login'
 import Overview from './pages/Overview'
+import Responses from './pages/Responses'
 import Statistics from './pages/Statistics'
 import Topology from './pages/Topology'
 
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/devices/:deviceId" element={<DeviceDetail />} />
         <Route path="/incidents" element={<Incidents />} />
         <Route path="/incidents/:incidentId" element={<Incidents />} />
+        <Route path="/responses" element={<Responses />} />
         <Route path="/statistics" element={<Statistics />} />
         <Route path="/gateway" element={<Gateway />} />
         <Route path="/topology" element={<Topology />} />
