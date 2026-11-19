@@ -1,4 +1,5 @@
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
+import MonitoringPanel from '../components/MonitoringPanel'
 import SeverityBadge from '../components/SeverityBadge'
 import StatCard from '../components/StatCard'
 import { formatTime, timeAgo } from '../format'
@@ -6,17 +7,11 @@ import { usePolling } from '../usePolling'
 
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Low']
 
-function monitoringNote(status) {
-  if (status.monitoring_since) return 'since ' + formatTime(status.monitoring_since)
-  if (status.monitoring_stop_reason === 'failure') return 'previous capture failed'
-  if (status.monitoring_stop_reason === 'interrupted') return 'previous run interrupted'
-  return 'not running'
-}
-
 export default function Overview() {
   const navigate = useNavigate()
   const { data: status, error } = usePolling('/api/system/status')
   const { data: incidents, error: incidentError } = usePolling('/api/incidents?limit=6')
+  const { data: pending } = usePolling('/api/actions?approval=pending&limit=101')
 
   if (error && !status) return <p className="error">Could not load the status: {error}</p>
   if (!status) return <p className="muted">Loading...</p>
@@ -27,6 +22,8 @@ export default function Overview() {
 
   return (
     <>
+      <MonitoringPanel />
+
       <div className="stats">
         <StatCard label="Devices" value={status.devices} note={'last seen ' + timeAgo(status.last_device_seen_at)} />
         <StatCard label="Recently seen" value={status.online_devices} note="seen in the last 5 min" />
@@ -37,10 +34,10 @@ export default function Overview() {
           color={urgent > 0 ? 'var(--high)' : undefined}
         />
         <StatCard
-          label="Monitoring"
-          value={status.monitoring.toUpperCase()}
-          note={monitoringNote(status)}
-          color={status.monitoring === 'on' ? 'var(--accent)' : 'var(--muted)'}
+          label="Waiting for approval"
+          value={pending ? (pending.length > 100 ? '100+' : pending.length) : '-'}
+          note={pending && pending.length > 0 ? <Link to="/responses">review responses</Link> : 'no response to decide'}
+          color={pending && pending.length > 0 ? 'var(--medium)' : undefined}
         />
       </div>
 
