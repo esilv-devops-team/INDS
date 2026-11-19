@@ -6,6 +6,7 @@ from backend.api.devices import router as devices_router
 from backend.api.errors import add_error_handlers
 from backend.api.gateway import router as gateway_router
 from backend.api.incidents import router as incidents_router
+from backend.api.statistics import router as statistics_router
 from backend.api.system import router as system_router
 
 app = FastAPI(
@@ -22,6 +23,7 @@ app.include_router(incidents_router)
 app.include_router(system_router)
 app.include_router(gateway_router)
 app.include_router(actions_router)
+app.include_router(statistics_router)
 
 
 @app.get("/health")
