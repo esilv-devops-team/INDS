@@ -11,6 +11,7 @@ from backend.database.models import Administrator, Device
 from backend.database.session import get_session
 from backend.services.audit import record_event
 from backend.services.device_inventory import get_all_devices, save_observations
+from backend.services.traffic_activity import device_rates
 from backend.services.vendor_lookup import lookup_vendor, normalize_mac
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -48,6 +49,13 @@ class DeviceUpdate(BaseModel):
     is_trusted: bool
 
 
+class DeviceRates(BaseModel):
+    window_start: datetime
+    window_end: datetime
+    upload_bps: float
+    download_bps: float
+
+
 @router.get("/vendor/{mac}")
 def get_vendor(mac: str):
     try:
@@ -79,6 +87,17 @@ def get_device(device_id: int, session: Session = Depends(get_session), admin: A
     if device is None:
         raise HTTPException(status_code=404, detail="device not found")
     return device
+
+@router.get("/{device_id}/traffic", response_model=DeviceRates)
+def get_device_traffic(
+    device_id: int,
+    session: Session = Depends(get_session),
+    admin: Administrator = Depends(get_current_admin),
+):
+    if session.get(Device, device_id) is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    return device_rates(session, device_id)
+
 
 @router.patch("/{device_id}", response_model=DeviceOut)
 def update_device(

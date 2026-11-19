@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 import json
 import logging
 import sys
+from time import monotonic
 
 from scapy.all import ARP, Ether, IP, IPv6, TCP, UDP, Dot1Q, sniff
 from scapy.error import Scapy_Exception
@@ -87,7 +88,7 @@ def read_metadata(packet):
     )
 
 
-def capture_traffic(interfaces, on_metadata, *, capture_filter=None):
+def capture_traffic(interfaces, on_metadata, *, capture_filter=None, duration=None):
     def handle_packet(packet):
         try:
             metadata = read_metadata(packet)
@@ -97,12 +98,14 @@ def capture_traffic(interfaces, on_metadata, *, capture_filter=None):
         if metadata is not None:
             on_metadata(metadata)
 
+    options = {} if duration is None else {"timeout": duration}
     sniff(
         iface=list(dict.fromkeys(interfaces)),
         filter=capture_filter,
         prn=handle_packet,
         store=False,
         chainCC=True,
+        **options,
     )
 
 
@@ -110,19 +113,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iface", action="append", required=True, help="Gateway port to observe (repeatable)")
     parser.add_argument("--filter", help="Optional libpcap capture filter")
+    parser.add_argument("--duration", type=int, help="Capture duration in seconds")
     args = parser.parse_args()
+    if args.duration is not None and args.duration <= 0:
+        parser.error("--duration must be positive")
 
     def write_metadata(metadata):
         print(json.dumps(asdict(metadata)), flush=True)
 
     try:
-        capture_traffic(args.iface, write_metadata, capture_filter=args.filter)
+        started = monotonic()
+        capture_traffic(args.iface, write_metadata, capture_filter=args.filter, duration=args.duration)
     except KeyboardInterrupt:
         return 0
     except (OSError, ValueError, Scapy_Exception) as error:
         print(f"Traffic capture failed on {', '.join(args.iface)}: {error}", file=sys.stderr)
         return 1
 
+    if args.duration is not None and monotonic() - started >= args.duration:
+        return 0
     print(f"Traffic capture ended unexpectedly on {', '.join(args.iface)}", file=sys.stderr)
     return 1
 
