@@ -19,10 +19,14 @@ DISCOVERED = "02:00:00:00:00:02"
 @pytest.fixture
 def controller(monkeypatch):
     service = monitoring.MonitoringController()
-    monkeypatch.setattr(main.app.state, "monitoring", service)
+    previous = main.app.state.monitoring
     monkeypatch.setenv("INDS_MONITOR_INTERFACE", "ap0")
-    yield service
-    service.shutdown()
+    main.app.state.monitoring = service
+    try:
+        yield service
+    finally:
+        main.app.state.monitoring = previous
+        service.shutdown()
 
 
 def test_start_collect_and_stop(admin_api, database, controller, monkeypatch):
