@@ -8,7 +8,7 @@ from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
-from backend.database.models import Device, MonitoringRun
+from backend.database.models import Device, MonitoringRun, ResponseAction
 from backend.services.audit import record_event
 from backend.services.device_inventory import save_observation
 from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
@@ -54,6 +54,17 @@ def guest_observations(interface, discoveries):
     ignored = os.environ.get("INDS_MONITOR_AP_MAC", "").strip().upper()
     return [device for mac, device in discoveries.items() if mac in guests and mac != ignored]
 
+def cancel_pending_actions(session, admin=None):
+    pending = session.scalars(select(ResponseAction).where(ResponseAction.approval_status == "pending")).all()
+    for action in pending:
+        action.approval_status = "cancelled"
+        action.decided_by_id = admin.id if admin else None
+        action.decided_at = utc_now()
+        record_event(
+            session, "response_action.cancelled", admin=admin,
+            response_action_id=action.id, incident_id=action.incident_id, device_id=action.device_id,
+            details={"reason": "monitoring stopped"},
+        )
 
 def close_run(engine, reason, *, run_id=None, admin=None):
     now = utc_now()
@@ -70,6 +81,8 @@ def close_run(engine, reason, *, run_id=None, admin=None):
             record_event(session, "monitoring.stop", admin=admin, monitoring_run_id=closed_id,
                          outcome="failure" if reason == "failure" else "success",
                          details={"reason": reason})
+            cancel_pending_actions(session, admin)
+        
 
 
 class MonitoringController:
