@@ -20,11 +20,12 @@ class RuleInfo:
 @dataclass(frozen=True)
 class Finding:
     rule_id: str
-    source_device_id: int
+    source_device_id: int | None
     timestamp: datetime
     severity: Severity
     evidence: dict[str, str | int]
     measured: dict[str, int | float]
+    source_mac: str | None = None
 
 
 class Rule(Protocol[Observation]):

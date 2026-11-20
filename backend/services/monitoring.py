@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
 from backend.database.models import Device, MonitoringRun, ResponseAction
+from backend.services.arp_detection import evaluate_arp, load_arp_bindings
 from backend.services.audit import record_event
 from backend.services.device_inventory import save_observation
 from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
 from backend.services.traffic_detection import TrafficDetection, load_traffic_settings
+from detection.registry import arp_rules
 
 logger = logging.getLogger(__name__)
 CAPTURE_SECONDS = 2
@@ -107,8 +109,9 @@ class MonitoringController:
                 raise MonitoringError(503, "Set INDS_MONITOR_INTERFACE to the AP-facing port.")
             try:
                 detection_settings = load_traffic_settings()
+                arp_bindings = load_arp_bindings()
             except ValueError as error:
-                raise MonitoringError(503, f"Invalid traffic detection settings: {error}") from error
+                raise MonitoringError(503, f"Invalid detection settings: {error}") from error
             with Session(engine) as session:
                 if session.scalar(select(MonitoringRun.id).where(MonitoringRun.ended_at.is_(None))):
                     raise MonitoringError(409, "Stop the unfinished monitoring run before starting again.")
@@ -130,7 +133,7 @@ class MonitoringController:
                 self.stop_event.clear()
                 self.worker = Thread(
                     target=self.collect,
-                    args=(engine, interface, capture_socket, run_id, started_at, detection_settings),
+                    args=(engine, interface, capture_socket, run_id, started_at, detection_settings, arp_bindings),
                     name="inds-traffic", daemon=True,
                 )
                 self.worker.start()
@@ -155,15 +158,30 @@ class MonitoringController:
             self.stop(self.engine)
             self.engine = None
 
-    def collect(self, engine, interface, capture_socket, run_id, started_at, detection_settings):
+    def log_findings(self, findings):
+        for finding in findings:
+            if self.stop_event.is_set():
+                return
+            payload = asdict(finding)
+            payload["timestamp"] = finding.timestamp.isoformat()
+            logger.warning("Detection finding: %s", json.dumps(payload))
+
+    def collect(self, engine, interface, capture_socket, run_id, started_at, detection_settings, arp_bindings):
         detection = TrafficDetection(detection_settings, started_at)
+        arp_engine = arp_rules(arp_bindings)
         try:
             while not self.stop_event.is_set():
                 with Session(engine) as session:
                     devices = dict(session.execute(select(Device.mac_address, Device.id)).tuples().all())
                 batch = TrafficAccumulator(devices, started_at)
                 discoveries = {}
-                capture_batch(interface, capture_socket, batch.add, discoveries)
+                arp_findings = []
+
+                def receive(metadata):
+                    batch.add(metadata)
+                    arp_findings.extend(evaluate_arp(arp_engine, metadata, devices, started_at))
+
+                capture_batch(interface, capture_socket, receive, discoveries)
                 if self.stop_event.is_set():
                     break
                 guests = guest_observations(interface, discoveries) if discoveries else []
@@ -174,15 +192,11 @@ class MonitoringController:
                         for guest in guests:
                             save_observation(session, **guest)
                 try:
+                    self.log_findings(arp_findings)
                     with Session(engine) as session:
                         settled = utc_now() - timedelta(seconds=CAPTURE_SECONDS)
                         findings = detection.evaluate_ready(session, run_id, settled)
-                    for finding in findings:
-                        if self.stop_event.is_set():
-                            break
-                        payload = asdict(finding)
-                        payload["timestamp"] = finding.timestamp.isoformat()
-                        logger.warning("Detection finding: %s", json.dumps(payload))
+                    self.log_findings(findings)
                 except Exception:
                     logger.exception("Traffic detection failed for monitoring run %s", run_id)
         except Exception:

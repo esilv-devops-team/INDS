@@ -28,7 +28,8 @@ class DetectionEngine(Generic[Observation]):
                     key: expiry for key, expiry in self.cooldowns.items() if expiry > finding.timestamp
                 }
                 self.last_pruned_at = finding.timestamp
-            key = (finding.rule_id, finding.source_device_id)
+            source = finding.source_mac or finding.source_device_id
+            key = (finding.rule_id, source)
             if key not in self.cooldowns:
                 self.cooldowns[key] = finding.timestamp + timedelta(seconds=rule.info.cooldown_seconds)
                 findings.append(finding)
