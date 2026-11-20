@@ -1,7 +1,8 @@
 # Internal ON/OFF contract (INDS-38)
 
-Status: requirements and acceptance preparation only. No runtime controller,
-collectors, AI worker, or firewall executor is implemented.
+The monitoring controller stops capture and detection, cancels pending
+approvals, and clears the managed block set when firewall enforcement is
+enabled. The checks below also cover future response and AI work.
 
 ## Internal OFF contract: future integration checks
 

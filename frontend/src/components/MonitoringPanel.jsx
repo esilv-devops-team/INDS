@@ -46,11 +46,11 @@ export default function MonitoringPanel() {
           {isOn ? (
             <p>
               Capturing traffic since {formatTime(status.monitoring_since)} (
-              {formatUptime(runningFor)}). Detection and responses are active.
+              {formatUptime(runningFor)}). Firewall enforcement is {status.firewall_enabled ? 'enabled' : 'disabled'}.
             </p>
           ) : (
             <p>
-              Nothing is captured or analysed and no action is applied. The gateway keeps forwarding traffic, so guests stay online.
+              Capture and detection are stopped. The gateway continues forwarding independently.
             </p>
           )}
           {!isOn && status.monitoring_stop_reason && (
@@ -59,10 +59,15 @@ export default function MonitoringPanel() {
             </p>
           )}
           {error && <p className="error small">{error}</p>}
+          {status.firewall_cleanup_needed && (
+            <p className="error small" role="status">Firewall cleanup is unconfirmed. Some devices may still be blocked.</p>
+          )}
         </div>
       </div>
 
-      {confirming ? (
+      {status.firewall_cleanup_needed && !isOn ? (
+        <button className="button small" disabled={busy} onClick={() => send('stop')}>Retry firewall cleanup</button>
+      ) : confirming ? (
         <div className="confirm">
           <span>Stop capture and detection? Pending approvals will be cancelled.</span>
           <button className="button small danger" disabled={busy} onClick={() => send('stop')}>

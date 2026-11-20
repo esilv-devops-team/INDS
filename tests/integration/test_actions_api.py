@@ -1,10 +1,12 @@
 from datetime import timedelta
+from unittest.mock import Mock
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
 from backend.database.models import AIAnalysis, Administrator, AuditEvent, Device, Incident, MonitoringRun, ResponseAction
+from gateway import discovery, firewall
 
 
 def add_incident_with_response(engine):
@@ -58,6 +60,70 @@ def start_monitoring(admin_api, engine):
     with Session(engine) as session:
         session.add(MonitoringRun(started_by_id=admin_id))
         session.commit()
+
+
+def configure_enforcement(monkeypatch, engine, action_id):
+    monkeypatch.setenv("INDS_FIREWALL_ENABLED", "1")
+    monkeypatch.setenv("INDS_MONITOR_INTERFACE", "ap0")
+    monkeypatch.setenv("INDS_MONITOR_AP_MAC", "02:00:00:00:00:01")
+    with Session(engine) as session, session.begin():
+        action = session.get(ResponseAction, action_id)
+        mac = action.target_mac
+        action.device = Device(mac_address=mac)
+    monkeypatch.setattr(discovery, "macs_on_port", Mock(return_value={mac}))
+    return mac
+
+
+def test_approved_block_is_confirmed_and_idempotently_reversed(admin_api, database, monkeypatch):
+    engine, _, _ = database
+    _, action_id = add_incident_with_response(engine)
+    start_monitoring(admin_api, engine)
+    mac = configure_enforcement(monkeypatch, engine, action_id)
+    set_block = Mock()
+    monkeypatch.setattr(firewall, "set_block", set_block)
+    path = f"/api/actions/{action_id}"
+
+    applied = admin_api.post(path + "/decision", json={"decision": "approved"})
+    assert applied.status_code == 200
+    assert applied.json()["execution_status"] == "active"
+    assert applied.json()["applied_at"]
+    removed = admin_api.post(path + "/reverse")
+    assert removed.json()["execution_status"] == "removed"
+    assert removed.json()["removed_at"]
+    assert admin_api.post(path + "/reverse").json()["execution_status"] == "removed"
+    assert [call.args for call in set_block.call_args_list] == [(mac, True), (mac, False)]
+
+
+def test_unconfirmed_application_is_visible_and_stop_clears_it(admin_api, database, monkeypatch):
+    engine, _, _ = database
+    _, action_id = add_incident_with_response(engine)
+    start_monitoring(admin_api, engine)
+    configure_enforcement(monkeypatch, engine, action_id)
+    monkeypatch.setattr(firewall, "set_block", Mock(side_effect=OSError("unreachable")))
+    clear = Mock(side_effect=[OSError("unreachable"), None])
+    monkeypatch.setattr(firewall, "clear_blocks", clear)
+
+    applied = admin_api.post(f"/api/actions/{action_id}/decision", json={"decision": "approved"})
+    assert applied.json()["execution_status"] == "unknown"
+    assert applied.json()["applied_at"] is None
+    assert admin_api.post("/api/system/monitoring/stop").status_code == 503
+    assert admin_api.get("/api/system/status").json()["firewall_cleanup_needed"]
+    assert admin_api.post("/api/system/monitoring/stop").status_code == 204
+    assert not admin_api.get("/api/system/status").json()["firewall_cleanup_needed"]
+    with Session(engine) as session:
+        assert session.get(ResponseAction, action_id).execution_status == "not_applied"
+
+
+def test_protected_inventory_device_cannot_be_blocked(admin_api, database, monkeypatch):
+    engine, _, _ = database
+    _, action_id = add_incident_with_response(engine)
+    start_monitoring(admin_api, engine)
+    mac = configure_enforcement(monkeypatch, engine, action_id)
+    monkeypatch.setenv("INDS_MONITOR_AP_MAC", mac)
+    set_block = Mock()
+    monkeypatch.setattr(firewall, "set_block", set_block)
+    assert admin_api.post(f"/api/actions/{action_id}/decision", json={"decision": "approved"}).status_code == 409
+    set_block.assert_not_called()
 
 
 def test_detail_shows_analyses_and_actions(admin_api, database):

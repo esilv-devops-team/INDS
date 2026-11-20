@@ -15,6 +15,7 @@ from backend.database.models import Device, MonitoringRun, ResponseAction
 from backend.services.arp_detection import evaluate_arp, load_arp_bindings
 from backend.services.audit import record_event
 from backend.services.device_inventory import save_observation
+from backend.services.response_execution import ResponseError, reconcile_blocks
 from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
 from backend.services.traffic_detection import TrafficDetection, load_traffic_settings
 from detection.registry import arp_rules
@@ -97,6 +98,15 @@ class MonitoringController:
         self.stop_event = Event()
         self.worker = None
         self.engine = None
+        self.firewall_cleanup_needed = False
+
+    def cleanup_firewall(self, engine, admin=None):
+        try:
+            reconcile_blocks(engine, admin)
+        except ResponseError as error:
+            self.firewall_cleanup_needed = True
+            raise MonitoringError(error.status, str(error)) from error
+        self.firewall_cleanup_needed = False
 
     def start(self, engine, admin):
         with self.lock:
@@ -115,6 +125,7 @@ class MonitoringController:
             with Session(engine) as session:
                 if session.scalar(select(MonitoringRun.id).where(MonitoringRun.ended_at.is_(None))):
                     raise MonitoringError(409, "Stop the unfinished monitoring run before starting again.")
+            self.cleanup_firewall(engine)
 
             try:
                 capture_socket = open_capture(interface)
@@ -148,10 +159,12 @@ class MonitoringController:
         with self.lock:
             self.stop_event.set()
             close_run(engine, "administrator" if admin else "shutdown", admin=admin)
-            if self.worker is not None and self.worker.is_alive():
-                self.worker.join(timeout=CAPTURE_SECONDS + 5)
-                if self.worker.is_alive():
-                    raise MonitoringError(503, "Timed out waiting for traffic capture to stop.")
+            worker = self.worker
+            self.cleanup_firewall(engine, admin)
+        if worker is not None and worker.is_alive():
+            worker.join(timeout=CAPTURE_SECONDS + 5)
+            if worker.is_alive():
+                raise MonitoringError(503, "Timed out waiting for traffic capture to stop.")
 
     def shutdown(self):
         if self.engine is not None:
@@ -201,7 +214,12 @@ class MonitoringController:
                     logger.exception("Traffic detection failed for monitoring run %s", run_id)
         except Exception:
             logger.exception("Traffic collector failed on %s", interface)
-            if not self.stop_event.is_set():
-                close_run(engine, "failure", run_id=run_id)
+            with self.lock:
+                if not self.stop_event.is_set():
+                    close_run(engine, "failure", run_id=run_id)
+                    try:
+                        self.cleanup_firewall(engine)
+                    except MonitoringError:
+                        logger.error("Firewall cleanup after capture failure needs operator attention.")
         finally:
             capture_socket.close()

@@ -9,6 +9,7 @@ from backend.database.base import utc_now
 from backend.database.models import Administrator, Device, Incident, MonitoringRun
 from backend.database.session import get_session
 from backend.services.monitoring import MonitoringError
+from backend.services.response_execution import enforcement_enabled
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -35,7 +36,7 @@ def set_monitoring(
 
 
 @router.get("/status")
-def system_status(session: Session = Depends(get_session), admin: Administrator = Depends(get_current_admin)):
+def system_status(request: Request, session: Session = Depends(get_session), admin: Administrator = Depends(get_current_admin)):
     run = session.scalar(select(MonitoringRun).where(MonitoringRun.ended_at.is_(None)))
     stop_reason = None if run else session.scalar(
         select(MonitoringRun.stop_reason)
@@ -59,6 +60,8 @@ def system_status(session: Session = Depends(get_session), admin: Administrator 
         "monitoring": "on" if run else "off",
         "monitoring_since": run.started_at if run else None,
         "monitoring_stop_reason": stop_reason,
+        "firewall_enabled": enforcement_enabled(),
+        "firewall_cleanup_needed": request.app.state.monitoring.firewall_cleanup_needed,
         "devices": session.scalar(select(func.count(Device.id))),
         "online_devices": session.scalar(select(func.count(Device.id)).where(Device.last_seen_at >= online_since)),
         "last_device_seen_at": session.scalar(select(func.max(Device.last_seen_at))),

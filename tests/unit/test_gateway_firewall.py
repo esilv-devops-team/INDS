@@ -1,3 +1,4 @@
+import json
 import subprocess
 from unittest.mock import Mock
 
@@ -55,3 +56,24 @@ def test_existing_policy_is_preserved_on_install_failure(monkeypatch):
     with pytest.raises(ValueError, match="File exists"):
         firewall.run_policy(firewall.render_policy("br-inds", "lan0", "wan0"), check=False)
     run.assert_called_once()
+
+
+def test_block_readback_is_required(monkeypatch):
+    mac = "02:00:00:00:00:01"
+    members = Mock(side_effect=[set(), {mac}, {mac}, {mac}])
+    apply = Mock()
+    monkeypatch.setattr(firewall, "blocked_macs", members)
+    monkeypatch.setattr(firewall, "run_policy", apply)
+    firewall.set_block(mac, True)
+    with pytest.raises(ValueError, match="did not confirm"):
+        firewall.set_block(mac, False)
+    assert [call.args[0].split()[0] for call in apply.call_args_list] == ["add", "delete"]
+
+
+def test_json_reader_uses_the_dedicated_set(monkeypatch):
+    definition = {"set": {"name": firewall.BLOCK_SET, "type": "ether_addr", "elem": ["02:00:00:00:AB:01"]}}
+    output = json.dumps({"nftables": [{"metainfo": {}}, definition]})
+    read = Mock(return_value=subprocess.CompletedProcess([], 0, output))
+    monkeypatch.setattr(firewall.subprocess, "run", read)
+    assert firewall.blocked_macs() == {"02:00:00:00:ab:01"}
+    assert read.call_args.args[0][-3:] == ["bridge", firewall.TABLE, firewall.BLOCK_SET]
