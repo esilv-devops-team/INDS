@@ -9,6 +9,7 @@ The AP provides Wi-Fi; the router remains the DHCP server and internet gateway.
 | `config/bridge.nmcli.example` | Reviewed, manual NetworkManager command template |
 | `scripts/inspect-network.sh` | Read-only Linux network inventory |
 | [INDS-42](../docs/INDS-42.md) | Run the passive traffic metadata collector |
+| [INDS-37](../docs/INDS-37.md) | Check and install the bridge firewall |
 | `../docs/gateway/setup.md` | Hardware, provisioning, activation, and recovery |
 | `../docs/gateway/verification.md` | Acceptance checks and measurement record |
 
@@ -21,7 +22,7 @@ Keep responsibilities separate:
 - NetworkManager and the Linux bridge own persistent forwarding.
 - Collectors observe traffic independently of forwarding.
 - Backend services own persistence, incident state, and administrator approval.
-- A future narrowly scoped executor owns INDS firewall rules. It must not flush
-  unrelated rules or tear down the bridge during OFF or application shutdown.
+- The dedicated INDS firewall table owns bridge response rules. Forwarding and
+  unrelated firewall tables remain under the host's control.
 
 The hardware procedure still needs validation on the team's Pi for INDS-36.
