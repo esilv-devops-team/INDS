@@ -1,6 +1,7 @@
 import { ArrowUpRight, ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
+import { api } from '../api'
 import ResponseLifecycle from '../components/ResponseLifecycle'
 import ResponseStatus from '../components/ResponseStatus'
 import { formatTime } from '../format'
@@ -10,7 +11,27 @@ import './Responses.css'
 
 const PAGE_SIZE = 15
 
-function ResponseRecord({ action }) {
+function ResponseRecord({ action, reload }) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const reversible = action.action_type === 'block' && action.approval_status === 'approved' &&
+    ['active', 'unknown', 'removing', 'applying'].includes(action.execution_status)
+
+  async function reverse() {
+    setBusy(true)
+    setError('')
+    try {
+      await api('/api/actions/' + action.id + '/reverse', { method: 'POST' })
+      reload()
+      setConfirming(false)
+    } catch (failure) {
+      setError(failure.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <details className="response-record">
       <summary>
@@ -31,6 +52,16 @@ function ResponseRecord({ action }) {
         </dl>
         <ResponseLifecycle action={action} />
         {action.error_message && <p className="error small">{action.error_message}</p>}
+        {error && <p className="error small" role="alert">{error}</p>}
+        {reversible && (
+          confirming ? (
+            <div className="confirm">
+              <span>Remove this block from the gateway?</span>
+              <button className="button small" onClick={reverse} disabled={busy}>Confirm removal</button>
+              <button className="link-button" onClick={() => setConfirming(false)} disabled={busy}>Cancel</button>
+            </div>
+          ) : <button className="button small" onClick={() => setConfirming(true)}>Reverse block</button>
+        )}
         <div className="response-links">
           {action.incident_id && (
             <Link className="device-link" to={'/incidents/' + action.incident_id}>
@@ -49,13 +80,13 @@ function ResponseRecord({ action }) {
 }
 
 function ResponseResults({ path, page, setPage }) {
-  const { data, error } = usePolling(path)
+  const { data, error, reload } = usePolling(path)
   if (!data) return <p className={error ? 'error' : 'muted'}>{error || 'Loading responses…'}</p>
 
   return (
     <>
       {error && <p className="muted small" role="status">Response refresh failed. Showing the last available data.</p>}
-      {data.length ? data.slice(0, PAGE_SIZE).map((action) => <ResponseRecord key={action.id} action={action} />) : (
+      {data.length ? data.slice(0, PAGE_SIZE).map((action) => <ResponseRecord key={action.id} action={action} reload={reload} />) : (
         <p className="device-empty muted">No responses match this view.</p>
       )}
       {(page > 0 || data.length > PAGE_SIZE) && (

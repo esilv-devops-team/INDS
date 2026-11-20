@@ -1,6 +1,7 @@
 """Provision the dedicated INDS bridge firewall on the gateway."""
 
 import argparse
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -10,6 +11,7 @@ TABLE = "inds_gateway"
 BLOCK_SET = "blocked_macs"
 NETWORK_DEVICES = Path("/sys/class/net")
 INTERFACE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}")
+MAC = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
 
 
 def render_policy(bridge, guest_port, router_port):
@@ -51,6 +53,38 @@ def run_policy(policy, *, check):
     result = subprocess.run(command, input=policy, text=True, capture_output=True, timeout=10)
     if result.returncode:
         raise ValueError(result.stderr.strip() or f"nft exited with status {result.returncode}.")
+
+
+def blocked_macs():
+    result = subprocess.run(
+        ["nft", "--json", "list", "set", "bridge", TABLE, BLOCK_SET],
+        text=True, capture_output=True, timeout=10, check=True,
+    )
+    for entry in json.loads(result.stdout)["nftables"]:
+        definition = entry.get("set")
+        if definition and definition["name"] == BLOCK_SET and definition["type"] == "ether_addr":
+            members = definition.get("elem", [])
+            if all(isinstance(member, str) and MAC.fullmatch(member.lower()) for member in members):
+                return {member.lower() for member in members}
+    raise ValueError("Unexpected INDS firewall set definition.")
+
+
+def set_block(mac, blocked):
+    mac = mac.lower()
+    if not MAC.fullmatch(mac) or mac == "00:00:00:00:00:00" or int(mac[:2], 16) & 1:
+        raise ValueError("The block target must be a unicast MAC.")
+    if (mac in blocked_macs()) != blocked:
+        verb = "add" if blocked else "delete"
+        run_policy(f"{verb} element bridge {TABLE} {BLOCK_SET} {{ {mac} }}\n", check=False)
+        if (mac in blocked_macs()) != blocked:
+            raise ValueError("The gateway did not confirm the requested block state.")
+
+
+def clear_blocks():
+    if blocked_macs():
+        run_policy(f"flush set bridge {TABLE} {BLOCK_SET}\n", check=False)
+        if blocked_macs():
+            raise ValueError("The INDS block set remains populated.")
 
 
 def main():

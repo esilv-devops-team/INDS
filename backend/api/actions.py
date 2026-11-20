@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -10,7 +10,11 @@ from backend.api.auth import get_current_admin
 from backend.database.base import utc_now
 from backend.database.models import Administrator, MonitoringRun, ResponseAction
 from backend.database.session import get_session
-from backend.services.audit import record_event
+from backend.services.monitoring import configured_interface
+from backend.services.response_execution import (
+    OUTSTANDING, ResponseError, enforcement_enabled, execute_block, reserve_response_write,
+    response_event, validate_block,
+)
 
 router = APIRouter(prefix="/api/actions", tags=["actions"])
 
@@ -76,27 +80,70 @@ def list_actions(
 def decide_action(
     action_id: int,
     data: Decision,
+    request: Request,
     session: Session = Depends(get_session),
     admin: Administrator = Depends(get_current_admin),
 ):
+    with request.app.state.monitoring.lock:
+        session.rollback()
+        reserve_response_write(session)
+        return record_decision(session, admin, action_id, data.decision)
+
+
+def record_decision(session, admin, action_id, decision):
+    admin_id = admin.id
     action = session.get(ResponseAction, action_id)
     if action is None:
         raise HTTPException(status_code=404, detail="response action not found")
     if action.approval_status != "pending":
         raise HTTPException(status_code=409, detail="this action is already " + action.approval_status)
 
-    if data.decision == "approved":
+    apply = decision == "approved" and action.action_type == "block" and enforcement_enabled()
+    if decision == "approved":
         running = session.scalar(select(MonitoringRun).where(MonitoringRun.ended_at.is_(None)))
         if running is None:
             raise HTTPException(status_code=409, detail="turn monitoring on before approving a response")
+    if apply:
+        try:
+            validate_block(session, action, configured_interface())
+        except ResponseError as error:
+            raise HTTPException(status_code=error.status, detail=str(error)) from error
 
-    action.approval_status = data.decision
-    action.decided_by_id = admin.id
+    action.approval_status = decision
+    action.decided_by_id = admin_id
     action.decided_at = utc_now()
-    record_event(
-        session, "response_action." + data.decision, admin=admin,
-        response_action_id=action.id, incident_id=action.incident_id, device_id=action.device_id,
-        details={"action_type": action.action_type, "target_mac": action.target_mac},
-    )
+    if apply:
+        action.execution_status = "applying"
+    response_event(session, action, decision, admin)
     session.commit()
+    if apply:
+        execute_block(session, action, admin, blocked=True)
     return action
+
+
+@router.post("/{action_id}/reverse", response_model=ActionOut)
+def reverse_action(
+    action_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    admin: Administrator = Depends(get_current_admin),
+):
+    if not enforcement_enabled():
+        raise HTTPException(status_code=503, detail="gateway firewall enforcement is disabled")
+    with request.app.state.monitoring.lock:
+        session.rollback()
+        reserve_response_write(session)
+        session.refresh(admin)
+        action = session.get(ResponseAction, action_id)
+        if action is None:
+            raise HTTPException(status_code=404, detail="response action not found")
+        if action.action_type != "block" or action.approval_status != "approved":
+            raise HTTPException(status_code=409, detail="only approved blocks can be reversed")
+        if action.execution_status not in OUTSTANDING:
+            return action
+        if action.applied_at is not None:
+            action.execution_status = "removing"
+        response_event(session, action, "reversal_requested", admin)
+        session.commit()
+        execute_block(session, action, admin, blocked=False)
+        return action
