@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from scapy.all import ARP, Ether
 
-from backend.services.arp_detection import evaluate_arp, load_arp_bindings
+from backend.services.arp_detection import evaluate_arp, parse_bindings
 from detection.registry import arp_rules
 from gateway.traffic import read_metadata
 
@@ -46,16 +46,17 @@ def test_matching_claims_unprotected_changes_and_probes_are_ignored():
     assert finding.source_device_id == 1
 
 
-def test_bindings_are_opt_in_and_normalize_mac(monkeypatch):
-    monkeypatch.delenv("INDS_ARP_PROTECTED_BINDINGS", raising=False)
-    assert arp_rules(load_arp_bindings()).rules == ()
-    monkeypatch.setenv("INDS_ARP_PROTECTED_BINDINGS", f"{ADDRESS}=02-00-00-00-00-01")
-    assert load_arp_bindings() == {ADDRESS: ROUTER}
+def test_bindings_are_opt_in_and_normalize_mac():
+    assert arp_rules(parse_bindings({})).rules == ()
+    assert parse_bindings({ADDRESS: "02-00-00-00-00-01"}) == {ADDRESS: ROUTER}
+    assert arp_rules({ADDRESS: ROUTER}, enabled=False).rules == ()
+    rule, = arp_rules({ADDRESS: ROUTER}, severity="Critical", cooldown_seconds=60).rules
+    assert (rule.info.severity, rule.info.cooldown_seconds) == ("Critical", 60)
 
 
-@pytest.mark.parametrize("binding", ["::1=02:00:00:00:00:01", "192.0.2.1=ff:ff:ff:ff:ff:ff",
-                                     "192.0.2.1=02:00:00:00:00:01,192.0.2.1=02:00:00:00:00:02"])
-def test_invalid_bindings_are_rejected(monkeypatch, binding):
-    monkeypatch.setenv("INDS_ARP_PROTECTED_BINDINGS", binding)
+@pytest.mark.parametrize("bindings", [{"::1": "02:00:00:00:00:01"}, {"192.0.2.1": "ff:ff:ff:ff:ff:ff"},
+                                      {"192.0.2.1": "02:00:00:00:00:01", " 192.0.2.1": "02:00:00:00:00:02"},
+                                      {"192.0.2.1": 5}, ["192.0.2.1"]])
+def test_invalid_bindings_are_rejected(bindings):
     with pytest.raises(ValueError):
-        load_arp_bindings()
+        parse_bindings(bindings)

@@ -1,17 +1,14 @@
-# INDS-46 — Abnormal traffic volume
+# INDS-46 - Abnormal traffic volume
 
 `TRAFFIC_SPIKE` evaluates completed per-device windows from SQLite. It adds
 upload and download, then compares the byte and packet rates with separate
 limits. Exact matches pass. Partial startup windows are skipped and repeated
 findings for the same device are suppressed during cooldown.
 
-| Backend setting | Default |
-| --- | --- |
-| `INDS_TRAFFIC_SPIKE_ENABLED` | `1` |
-| `INDS_TRAFFIC_SPIKE_WINDOW_MINUTES` | 1 |
-| `INDS_TRAFFIC_SPIKE_BYTES_PER_MINUTE` | 104857600 (100 MiB) |
-| `INDS_TRAFFIC_SPIKE_PACKETS_PER_MINUTE` | 100000 |
-| `INDS_TRAFFIC_SPIKE_COOLDOWN_SECONDS` | 300 |
+The rule is configured in the `TRAFFIC_SPIKE` row of the detection rules
+(see [INDS-75](INDS-75.md)): `window_minutes` 1, `max_bytes_per_minute`
+104857600 (100 MiB), `max_packets_per_minute` 100000, severity Medium and a
+300 second cooldown.
 
 Settings take effect when monitoring starts. A finding in the backend log
 contains the rule ID, device ID, UTC time, severity, thresholds, and measured

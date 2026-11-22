@@ -8,8 +8,9 @@ from backend.database.models.traffic_summary import TrafficSummary
 from backend.database.models.ai_analysis import AIAnalysis
 from backend.database.models.response_action import ResponseAction
 from backend.database.models.audit_event import AuditEvent
+from backend.database.models.detection_rule import DetectionRule
 
 __all__ = [
     "Administrator", "Device", "MonitoringRun", "Incident", "TrafficSummary",
-    "AIAnalysis", "ResponseAction", "AuditEvent",
+    "AIAnalysis", "ResponseAction", "AuditEvent", "DetectionRule",
 ]

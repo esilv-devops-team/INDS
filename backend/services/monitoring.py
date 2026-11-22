@@ -12,12 +12,13 @@ from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
 from backend.database.models import Device, MonitoringRun, ResponseAction
-from backend.services.arp_detection import evaluate_arp, load_arp_bindings
+from backend.services.arp_detection import evaluate_arp
 from backend.services.audit import record_event
+from backend.services.detection_rules import arp_spoofing_settings, traffic_spike_settings
 from backend.services.device_inventory import save_observation
 from backend.services.response_execution import ResponseError, reconcile_blocks
 from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
-from backend.services.traffic_detection import TrafficDetection, load_traffic_settings
+from backend.services.traffic_detection import TrafficDetection
 from detection.registry import arp_rules
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ def guest_observations(interface, discoveries):
     ignored = os.environ.get("INDS_MONITOR_AP_MAC", "").strip().upper()
     return [device for mac, device in discoveries.items() if mac in guests and mac != ignored]
 
+
 def cancel_pending_actions(session, admin=None):
     pending = session.scalars(select(ResponseAction).where(ResponseAction.approval_status == "pending")).all()
     for action in pending:
@@ -72,6 +74,7 @@ def cancel_pending_actions(session, admin=None):
             response_action_id=action.id, incident_id=action.incident_id, device_id=action.device_id,
             details={"reason": "monitoring stopped"},
         )
+
 
 def close_run(engine, reason, *, run_id=None, admin=None):
     now = utc_now()
@@ -89,7 +92,6 @@ def close_run(engine, reason, *, run_id=None, admin=None):
                          outcome="failure" if reason == "failure" else "success",
                          details={"reason": reason})
             cancel_pending_actions(session, admin)
-        
 
 
 class MonitoringController:
@@ -117,12 +119,12 @@ class MonitoringController:
             interface = configured_interface()
             if not interface:
                 raise MonitoringError(503, "Set INDS_MONITOR_INTERFACE to the AP-facing port.")
-            try:
-                detection_settings = load_traffic_settings()
-                arp_bindings = load_arp_bindings()
-            except ValueError as error:
-                raise MonitoringError(503, f"Invalid detection settings: {error}") from error
             with Session(engine) as session:
+                try:
+                    detection_settings = traffic_spike_settings(session)
+                    arp_settings = arp_spoofing_settings(session)
+                except ValueError as error:
+                    raise MonitoringError(503, f"Invalid detection settings: {error}") from error
                 if session.scalar(select(MonitoringRun.id).where(MonitoringRun.ended_at.is_(None))):
                     raise MonitoringError(409, "Stop the unfinished monitoring run before starting again.")
             self.cleanup_firewall(engine)
@@ -144,7 +146,7 @@ class MonitoringController:
                 self.stop_event.clear()
                 self.worker = Thread(
                     target=self.collect,
-                    args=(engine, interface, capture_socket, run_id, started_at, detection_settings, arp_bindings),
+                    args=(engine, interface, capture_socket, run_id, started_at, detection_settings, arp_settings),
                     name="inds-traffic", daemon=True,
                 )
                 self.worker.start()
@@ -179,9 +181,9 @@ class MonitoringController:
             payload["timestamp"] = finding.timestamp.isoformat()
             logger.warning("Detection finding: %s", json.dumps(payload))
 
-    def collect(self, engine, interface, capture_socket, run_id, started_at, detection_settings, arp_bindings):
+    def collect(self, engine, interface, capture_socket, run_id, started_at, detection_settings, arp_settings):
         detection = TrafficDetection(detection_settings, started_at)
-        arp_engine = arp_rules(arp_bindings)
+        arp_engine = arp_rules(**arp_settings)
         try:
             while not self.stop_event.is_set():
                 with Session(engine) as session:

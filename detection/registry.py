@@ -9,5 +9,5 @@ def traffic_rules(settings: TrafficSpikeSettings) -> DetectionEngine[TrafficWind
     return DetectionEngine((TrafficSpikeRule(settings),))
 
 
-def arp_rules(bindings: dict[str, str]) -> DetectionEngine[ArpClaim]:
-    return DetectionEngine((ArpSpoofingRule(bindings),))
+def arp_rules(bindings: dict[str, str], severity="High", cooldown_seconds=300, enabled=True) -> DetectionEngine[ArpClaim]:
+    return DetectionEngine((ArpSpoofingRule(bindings, severity, cooldown_seconds, enabled),))

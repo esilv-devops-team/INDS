@@ -31,12 +31,12 @@ def finding(**overrides):
 
 def test_initialization_and_migration_match_models(database):
     engine, config, _ = database
-    assert set(inspect(engine).get_table_names()) == {"devices", "incidents", "administrators", "monitoring_runs", "traffic_summaries", "ai_analyses", "response_actions", "audit_events", "alembic_version"}
+    assert set(inspect(engine).get_table_names()) == {"devices", "incidents", "administrators", "monitoring_runs", "traffic_summaries", "ai_analyses", "response_actions", "audit_events", "detection_rules", "alembic_version"}
     assert {i["name"] for i in inspect(engine).get_indexes("incidents")} == {
         "ix_incidents_status_created_at", "ix_incidents_source_device_id_created_at", "ix_incidents_monitoring_run_id"
     }
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
         assert connection.scalar(text("PRAGMA busy_timeout")) == 5000
@@ -223,7 +223,7 @@ def test_fresh_checkout_initializes_without_local_state(tmp_path, monkeypatch):
     database_path = checkout / "data" / "inds.sqlite3"
     assert database_path.is_file()
     with closing(sqlite3.connect(database_path)) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0002",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0003",)
         assert connection.execute("SELECT COUNT(*) FROM devices").fetchone() == (0,)
         assert connection.execute("SELECT COUNT(*) FROM incidents").fetchone() == (0,)
         assert connection.execute("SELECT COUNT(*) FROM administrators").fetchone() == (0,)

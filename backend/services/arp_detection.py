@@ -2,17 +2,18 @@
 
 from datetime import UTC, datetime
 from ipaddress import IPv4Address
-import os
 
 from backend.services.vendor_lookup import normalize_mac
 from detection.rules.arp_spoofing import ArpClaim
 
 
-def load_arp_bindings():
-    raw = os.environ.get("INDS_ARP_PROTECTED_BINDINGS", "").strip()
+def parse_bindings(pairs):
+    if not isinstance(pairs, dict):
+        raise ValueError("Protected ARP bindings must map IPv4 addresses to MAC addresses.")
     bindings = {}
-    for entry in raw.split(",") if raw else ():
-        ip, _, mac = entry.partition("=")
+    for ip, mac in pairs.items():
+        if not isinstance(ip, str) or not isinstance(mac, str):
+            raise ValueError("Protected ARP bindings must map IPv4 addresses to MAC addresses.")
         address = IPv4Address(ip.strip())
         normalized = normalize_mac(mac)
         if address.is_unspecified or address.is_multicast or address == IPv4Address("255.255.255.255"):
