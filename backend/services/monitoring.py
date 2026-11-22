@@ -14,12 +14,13 @@ from backend.database.base import utc_now
 from backend.database.models import Device, MonitoringRun, ResponseAction
 from backend.services.arp_detection import evaluate_arp
 from backend.services.audit import record_event
-from backend.services.detection_rules import arp_spoofing_settings, traffic_spike_settings
+from backend.services.detection_rules import arp_spoofing_settings, port_scan_settings, traffic_spike_settings
 from backend.services.device_inventory import save_observation
+from backend.services.port_scan_detection import evaluate_port_scan
 from backend.services.response_execution import ResponseError, reconcile_blocks
 from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
 from backend.services.traffic_detection import TrafficDetection
-from detection.registry import arp_rules
+from detection.registry import arp_rules, port_scan_rules
 
 logger = logging.getLogger(__name__)
 CAPTURE_SECONDS = 2
@@ -123,6 +124,7 @@ class MonitoringController:
                 try:
                     detection_settings = traffic_spike_settings(session)
                     arp_settings = arp_spoofing_settings(session)
+                    scan_settings = port_scan_settings(session)
                 except ValueError as error:
                     raise MonitoringError(503, f"Invalid detection settings: {error}") from error
                 if session.scalar(select(MonitoringRun.id).where(MonitoringRun.ended_at.is_(None))):
@@ -146,7 +148,7 @@ class MonitoringController:
                 self.stop_event.clear()
                 self.worker = Thread(
                     target=self.collect,
-                    args=(engine, interface, capture_socket, run_id, started_at, detection_settings, arp_settings),
+                    args=(engine, interface, capture_socket, run_id, started_at, detection_settings, arp_settings, scan_settings),
                     name="inds-traffic", daemon=True,
                 )
                 self.worker.start()
@@ -181,20 +183,22 @@ class MonitoringController:
             payload["timestamp"] = finding.timestamp.isoformat()
             logger.warning("Detection finding: %s", json.dumps(payload))
 
-    def collect(self, engine, interface, capture_socket, run_id, started_at, detection_settings, arp_settings):
+    def collect(self, engine, interface, capture_socket, run_id, started_at, detection_settings, arp_settings, scan_settings):
         detection = TrafficDetection(detection_settings, started_at)
         arp_engine = arp_rules(**arp_settings)
+        scan_engine = port_scan_rules(scan_settings)
         try:
             while not self.stop_event.is_set():
                 with Session(engine) as session:
                     devices = dict(session.execute(select(Device.mac_address, Device.id)).tuples().all())
                 batch = TrafficAccumulator(devices, started_at)
                 discoveries = {}
-                arp_findings = []
+                packet_findings = []
 
                 def receive(metadata):
                     batch.add(metadata)
-                    arp_findings.extend(evaluate_arp(arp_engine, metadata, devices, started_at))
+                    packet_findings.extend(evaluate_arp(arp_engine, metadata, devices, started_at))
+                    packet_findings.extend(evaluate_port_scan(scan_engine, metadata, devices, started_at))
 
                 capture_batch(interface, capture_socket, receive, discoveries)
                 if self.stop_event.is_set():
@@ -207,7 +211,7 @@ class MonitoringController:
                         for guest in guests:
                             save_observation(session, **guest)
                 try:
-                    self.log_findings(arp_findings)
+                    self.log_findings(packet_findings)
                     with Session(engine) as session:
                         settled = utc_now() - timedelta(seconds=CAPTURE_SECONDS)
                         findings = detection.evaluate_ready(session, run_id, settled)

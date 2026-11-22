@@ -1,8 +1,8 @@
-# INDS-42 — Capture traffic metadata
+# INDS-42 - Capture traffic metadata
 
 The gateway collector emits one JSON line per observed frame with the interface,
 timestamp, protocol, source and destination MAC and IP addresses, TCP/UDP ports
-when available, and captured frame size. Packet payloads are omitted.
+and TCP flags when available, and captured frame size. Packet payloads are omitted.
 
 On the Pi, install `gateway/requirements.txt` in the virtual environment and
 run from the repo root. Replace `AP_PORT` with the AP-facing bridge port.
