@@ -51,6 +51,6 @@ export function formatUptime(seconds) {
 }
 
 export function readable(text) {
-  const words = text.replaceAll('_', ' ')
+  const words = text.replaceAll('_', ' ').toLowerCase()
   return words.charAt(0).toUpperCase() + words.slice(1)
 }

@@ -16,6 +16,7 @@ from backend.services.arp_detection import evaluate_arp
 from backend.services.audit import record_event
 from backend.services.detection_rules import arp_spoofing_settings, port_scan_settings, traffic_spike_settings
 from backend.services.device_inventory import save_observation
+from backend.services.incident_creation import record_findings
 from backend.services.port_scan_detection import evaluate_port_scan
 from backend.services.response_execution import ResponseError, reconcile_blocks
 from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
@@ -183,6 +184,13 @@ class MonitoringController:
             payload["timestamp"] = finding.timestamp.isoformat()
             logger.warning("Detection finding: %s", json.dumps(payload))
 
+    def report_findings(self, engine, run_id, findings):
+        if not findings or self.stop_event.is_set():
+            return
+        self.log_findings(findings)
+        with Session(engine) as session, session.begin():
+            record_findings(session, run_id, findings)
+
     def collect(self, engine, interface, capture_socket, run_id, started_at, detection_settings, arp_settings, scan_settings):
         detection = TrafficDetection(detection_settings, started_at)
         arp_engine = arp_rules(**arp_settings)
@@ -211,11 +219,11 @@ class MonitoringController:
                         for guest in guests:
                             save_observation(session, **guest)
                 try:
-                    self.log_findings(packet_findings)
+                    self.report_findings(engine, run_id, packet_findings)
                     with Session(engine) as session:
                         settled = utc_now() - timedelta(seconds=CAPTURE_SECONDS)
                         findings = detection.evaluate_ready(session, run_id, settled)
-                    self.log_findings(findings)
+                    self.report_findings(engine, run_id, findings)
                 except Exception:
                     logger.exception("Traffic detection failed for monitoring run %s", run_id)
         except Exception:
