@@ -109,13 +109,13 @@ CREATE TABLE _alembic_tmp_incidents (
     resolved_at DATETIME,
     monitoring_run_id INTEGER,
     CONSTRAINT pk_incidents PRIMARY KEY (id),
-    CONSTRAINT ck_incidents_status_values CHECK (status IN ('open', 'investigating', 'resolved')),
-    CONSTRAINT ck_incidents_update_order CHECK (updated_at >= created_at),
-    CONSTRAINT fk_incidents_source_device_id_devices FOREIGN KEY(source_device_id) REFERENCES devices (id) ON DELETE SET NULL,
-    CONSTRAINT ck_incidents_severity_values CHECK (severity IN ('Low', 'Medium', 'High', 'Critical')),
-    CONSTRAINT ck_incidents_risk_score_range CHECK (risk_score BETWEEN 0 AND 100),
     CONSTRAINT ck_incidents_resolution_state CHECK ((status = 'resolved' AND resolved_at IS NOT NULL AND resolved_at >= created_at) OR (status != 'resolved' AND resolved_at IS NULL)),
+    CONSTRAINT fk_incidents_source_device_id_devices FOREIGN KEY(source_device_id) REFERENCES devices (id) ON DELETE SET NULL,
+    CONSTRAINT ck_incidents_status_values CHECK (status IN ('open', 'investigating', 'resolved')),
+    CONSTRAINT ck_incidents_risk_score_range CHECK (risk_score BETWEEN 0 AND 100),
     CONSTRAINT ck_incidents_observation_order CHECK (last_seen_at >= first_seen_at),
+    CONSTRAINT ck_incidents_update_order CHECK (updated_at >= created_at),
+    CONSTRAINT ck_incidents_severity_values CHECK (severity IN ('Low', 'Medium', 'High', 'Critical')),
     CONSTRAINT fk_incidents_monitoring_run_id_monitoring_runs FOREIGN KEY(monitoring_run_id) REFERENCES monitoring_runs (id) ON DELETE RESTRICT,
     CONSTRAINT ck_incidents_evidence_object CHECK (json_valid(evidence_json) AND json_type(evidence_json) = 'object')
 );
@@ -291,3 +291,30 @@ CREATE INDEX ix_audit_events_occurred_at ON audit_events (occurred_at);
 CREATE INDEX ix_audit_events_response_action_id ON audit_events (response_action_id);
 
 UPDATE alembic_version SET version_num='0002' WHERE alembic_version.version_num = '0001';
+
+-- Running upgrade 0002 -> 0003
+
+CREATE TABLE detection_rules (
+    id INTEGER NOT NULL,
+    rule_code VARCHAR(50) NOT NULL,
+    description TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 1 NOT NULL,
+    severity VARCHAR(10) NOT NULL,
+    cooldown_seconds INTEGER NOT NULL,
+    settings_json JSON NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CONSTRAINT pk_detection_rules PRIMARY KEY (id),
+    CONSTRAINT ck_detection_rules_settings_object CHECK (json_valid(settings_json) AND json_type(settings_json) = 'object'),
+    CONSTRAINT ck_detection_rules_severity_values CHECK (severity IN ('Low', 'Medium', 'High', 'Critical')),
+    CONSTRAINT ck_detection_rules_cooldown_positive CHECK (cooldown_seconds > 0),
+    CONSTRAINT uq_detection_rules_rule_code UNIQUE (rule_code),
+    CONSTRAINT ck_detection_rules_enabled_boolean CHECK (enabled IN (0, 1))
+);
+
+INSERT INTO detection_rules (rule_code, description, enabled, severity, cooldown_seconds, settings_json, updated_at) VALUES ('TRAFFIC_SPIKE', 'Per-device traffic exceeds a byte or packet rate.', 1, 'Medium', 300, '{"window_minutes": 1, "max_bytes_per_minute": 104857600, "max_packets_per_minute": 100000}', CURRENT_TIMESTAMP);
+
+INSERT INTO detection_rules (rule_code, description, enabled, severity, cooldown_seconds, settings_json, updated_at) VALUES ('ARP_SPOOFING', 'An ARP claim conflicts with a protected IPv4 address of the network.', 1, 'High', 300, '{"protected_bindings": {}}', CURRENT_TIMESTAMP);
+
+INSERT INTO detection_rules (rule_code, description, enabled, severity, cooldown_seconds, settings_json, updated_at) VALUES ('PORT_SCAN', 'A device tries many different ports on the same target in a short time.', 1, 'Medium', 300, '{"distinct_ports": 20, "window_seconds": 60}', CURRENT_TIMESTAMP);
+
+UPDATE alembic_version SET version_num='0003' WHERE alembic_version.version_num = '0002';

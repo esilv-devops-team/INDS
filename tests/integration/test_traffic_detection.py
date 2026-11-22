@@ -3,13 +3,12 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from backend.database.models import Administrator, Device, MonitoringRun, TrafficSummary
-from backend.services.traffic_detection import TrafficDetection, load_traffic_settings
+from backend.services.traffic_detection import TrafficDetection
+from detection.rules.traffic_spike import TrafficSpikeSettings
 
 
-def test_detection_uses_closed_windows_for_the_selected_run(database, monkeypatch):
+def test_detection_uses_closed_windows_for_the_selected_run(database):
     engine, _, _ = database
-    monkeypatch.setenv("INDS_TRAFFIC_SPIKE_WINDOW_MINUTES", "2")
-    monkeypatch.setenv("INDS_TRAFFIC_SPIKE_BYTES_PER_MINUTE", "100")
     start = datetime(2026, 11, 20, 10)
     minute = timedelta(minutes=1)
     with Session(engine) as session, session.begin():
@@ -29,7 +28,7 @@ def test_detection_uses_closed_windows_for_the_selected_run(database, monkeypatc
                 window_end=bucket + minute, bytes_received=size,
             ))
 
-    detector = TrafficDetection(load_traffic_settings(), start + timedelta(seconds=5))
+    detector = TrafficDetection(TrafficSpikeSettings(window_minutes=2, max_bytes_per_minute=100), start + timedelta(seconds=5))
     with Session(engine) as session:
         assert detector.evaluate_ready(session, run_id, start + 3 * minute) == []
         finding, = detector.evaluate_ready(session, run_id, start + 4 * minute)

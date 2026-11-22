@@ -1,28 +1,13 @@
 """Feed completed monitoring windows to the detection engine."""
 
 from datetime import UTC, timedelta
-import os
 
 from sqlalchemy import func, select
 
 from backend.database.models import TrafficSummary
 from backend.services.statistics import floor_time
 from detection.registry import traffic_rules
-from detection.rules.traffic_spike import TrafficSpikeSettings, TrafficWindow
-
-
-def load_traffic_settings():
-    defaults = TrafficSpikeSettings()
-    enabled = os.environ.get("INDS_TRAFFIC_SPIKE_ENABLED", "1")
-    if enabled not in {"0", "1"}:
-        raise ValueError("INDS_TRAFFIC_SPIKE_ENABLED must be 0 or 1.")
-    return TrafficSpikeSettings(
-        enabled=enabled == "1",
-        window_minutes=int(os.environ.get("INDS_TRAFFIC_SPIKE_WINDOW_MINUTES", defaults.window_minutes)),
-        max_bytes_per_minute=int(os.environ.get("INDS_TRAFFIC_SPIKE_BYTES_PER_MINUTE", defaults.max_bytes_per_minute)),
-        max_packets_per_minute=int(os.environ.get("INDS_TRAFFIC_SPIKE_PACKETS_PER_MINUTE", defaults.max_packets_per_minute)),
-        cooldown_seconds=int(os.environ.get("INDS_TRAFFIC_SPIKE_COOLDOWN_SECONDS", defaults.cooldown_seconds)),
-    )
+from detection.rules.traffic_spike import TrafficWindow
 
 
 class TrafficDetection:

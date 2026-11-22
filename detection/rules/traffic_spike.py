@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from detection.base import Finding, RuleInfo
+from detection.base import Finding, RuleInfo, Severity
 
 
 @dataclass(frozen=True)
@@ -24,12 +24,15 @@ class TrafficSpikeSettings:
     max_packets_per_minute: int = 100_000
     enabled: bool = True
     cooldown_seconds: int = 300
+    severity: Severity = "Medium"
 
     def __post_init__(self):
         if not 1 <= self.window_minutes <= 60:
             raise ValueError("Traffic spike window must be between 1 and 60 minutes.")
         if min(self.max_bytes_per_minute, self.max_packets_per_minute, self.cooldown_seconds) <= 0:
             raise ValueError("Traffic spike limits and cooldown must be positive.")
+        if self.severity not in ("Low", "Medium", "High", "Critical"):
+            raise ValueError("Traffic spike severity must be Low, Medium, High or Critical.")
 
 
 class TrafficSpikeRule:
@@ -38,7 +41,7 @@ class TrafficSpikeRule:
         self.info = RuleInfo(
             rule_id="TRAFFIC_SPIKE",
             description="Per-device traffic exceeds a configured byte or packet rate.",
-            severity="Medium",
+            severity=settings.severity,
             enabled=settings.enabled,
             cooldown_seconds=settings.cooldown_seconds,
         )

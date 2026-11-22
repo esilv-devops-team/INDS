@@ -17,11 +17,11 @@ class ArpClaim:
 
 
 class ArpSpoofingRule:
-    def __init__(self, bindings: dict[str, str]):
+    def __init__(self, bindings: dict[str, str], severity="High", cooldown_seconds=300, enabled=True):
         self.bindings = dict(bindings)
         self.info = RuleInfo(
             "ARP_SPOOFING", "An ARP claim conflicts with a protected IPv4 binding.",
-            "High", bool(bindings), 300,
+            severity, enabled and bool(bindings), cooldown_seconds,
         )
 
     def evaluate(self, observation: ArpClaim) -> Finding | None:
