@@ -3,6 +3,7 @@ from sqlalchemy import select
 from backend.database.models import DetectionRule
 from backend.services.arp_detection import parse_bindings
 from backend.services.audit import record_event
+from detection.rules.port_scan import PortScanSettings
 from detection.rules.traffic_spike import TrafficSpikeSettings
 
 SEVERITIES = ("Low", "Medium", "High", "Critical")
@@ -103,3 +104,11 @@ def arp_spoofing_settings(session):
         "cooldown_seconds": rule.cooldown_seconds,
         "enabled": rule.enabled,
     }
+
+
+def port_scan_settings(session):
+    rule = get_rule(session, "PORT_SCAN")
+    settings = validate_settings(rule.rule_code, rule.settings_json)
+    return PortScanSettings(
+        enabled=rule.enabled, severity=rule.severity, cooldown_seconds=rule.cooldown_seconds, **settings,
+    )

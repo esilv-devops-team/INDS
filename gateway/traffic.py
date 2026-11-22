@@ -29,6 +29,7 @@ class TrafficMetadata:
     captured_bytes: int
     arp_sender_mac: str | None = None
     arp_operation: int | None = None
+    tcp_flags: str | None = None
 
 
 def read_metadata(packet):
@@ -89,6 +90,7 @@ def read_metadata(packet):
         captured_bytes=len(captured) if captured else len(packet),
         arp_sender_mac=network.hwsrc if protocol == "ARP" else None,
         arp_operation=network.op if protocol == "ARP" else None,
+        tcp_flags=str(transport.flags) if protocol == "TCP" and source_port is not None else None,
     )
 
 

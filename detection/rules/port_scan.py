@@ -1,47 +1,86 @@
-"""Port scan detection rule (INDS-45).
+"""Detect one device trying many different ports on the same target."""
 
-A device that tries many different ports on the same target in a short
-time is probably scanning it (reconnaissance before an attack).
-Default thresholds from the SRS: 20 distinct ports within 60 seconds.
-"""
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
-PORT_THRESHOLD = 20
-WINDOW_SECONDS = 60
+from detection.base import Finding, RuleInfo, Severity
+
+MAX_TRACKED_PAIRS = 10000
 
 
-def detect_port_scans(events, port_threshold=PORT_THRESHOLD, window_seconds=WINDOW_SECONDS):
-    """Return one detection event per (source, target) pair that scans.
+@dataclass(frozen=True)
+class PortProbe:
+    timestamp: datetime
+    source_ip: str
+    target_ip: str
+    port: int
+    protocol: str
+    source_mac: str
+    source_device_id: int | None
 
-    events: list of dicts {"time": seconds, "src": ip, "dst": ip, "port": int}
-    """
-    # 1. Group the connection attempts by (source, target)
-    by_pair = {}
-    for event in events:
-        key = (event["src"], event["dst"])
-        by_pair.setdefault(key, []).append(event)
 
-    detections = []
-    for (src, dst), pair_events in by_pair.items():
-        pair_events.sort(key=lambda e: e["time"])
+@dataclass(frozen=True)
+class PortScanSettings:
+    distinct_ports: int = 20
+    window_seconds: int = 60
+    enabled: bool = True
+    cooldown_seconds: int = 300
+    severity: Severity = "Medium"
 
-        # 2. Slide a time window over the attempts, oldest first
-        start = 0
-        for end in range(len(pair_events)):
-            while pair_events[end]["time"] - pair_events[start]["time"] > window_seconds:
-                start += 1
+    def __post_init__(self):
+        if self.distinct_ports < 2 or self.window_seconds < 1 or self.cooldown_seconds < 1:
+            raise ValueError("Port scan needs at least 2 ports and a positive window and cooldown.")
+        if self.severity not in ("Low", "Medium", "High", "Critical"):
+            raise ValueError("Port scan severity must be Low, Medium, High or Critical.")
 
-            ports = {e["port"] for e in pair_events[start:end + 1]}
 
-            # 3. Too many different ports in the window -> port scan
-            if len(ports) >= port_threshold:
-                detections.append({
-                    "type": "port_scan",
-                    "source": src,
-                    "target": dst,
-                    "distinct_ports": len(ports),
-                    "first_seen": pair_events[start]["time"],
-                    "last_seen": pair_events[end]["time"],
-                })
-                break
+class PortScanRule:
+    def __init__(self, settings: PortScanSettings):
+        self.settings = settings
+        self.info = RuleInfo(
+            rule_id="PORT_SCAN",
+            description="A device tries many different ports on the same target in a short time.",
+            severity=settings.severity,
+            enabled=settings.enabled,
+            cooldown_seconds=settings.cooldown_seconds,
+        )
+        self.recent = {}
 
-    return detections
+    def forget_old(self, oldest):
+        self.recent = {
+            pair: ports for pair, ports in self.recent.items() if max(ports.values()) >= oldest
+        }
+
+    def evaluate(self, observation: PortProbe) -> Finding | None:
+        oldest = observation.timestamp - timedelta(seconds=self.settings.window_seconds)
+        if len(self.recent) >= MAX_TRACKED_PAIRS:
+            self.forget_old(oldest)
+
+        pair = (observation.source_ip, observation.target_ip)
+        ports = self.recent.setdefault(pair, {})
+        ports[observation.port] = observation.timestamp
+        for port, seen in list(ports.items()):
+            if seen < oldest:
+                del ports[port]
+
+        if len(ports) < self.settings.distinct_ports:
+            return None
+
+        tried = sorted(ports)
+        del self.recent[pair]
+        return Finding(
+            rule_id=self.info.rule_id,
+            source_device_id=observation.source_device_id,
+            timestamp=observation.timestamp,
+            severity=self.info.severity,
+            evidence={
+                "source_ip": observation.source_ip,
+                "target_ip": observation.target_ip,
+                "protocol": observation.protocol,
+                "window_seconds": self.settings.window_seconds,
+                "distinct_ports_limit": self.settings.distinct_ports,
+                "sample_ports": ",".join(str(port) for port in tried[:15]),
+            },
+            measured={"distinct_ports": len(tried)},
+            source_mac=observation.source_mac,
+        )
