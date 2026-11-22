@@ -7,11 +7,46 @@ import { actionName } from '../responseStates'
 import ResponseLifecycle from './ResponseLifecycle'
 import ResponseStatus from './ResponseStatus'
 import SeverityBadge from './SeverityBadge'
+import './IncidentDetail.css'
+
+const RESPONSE_EVENTS = {
+  approved: 'Response approved',
+  rejected: 'Response rejected',
+  applied: 'Block applied on the gateway',
+  reversal_requested: 'Removal of the block requested',
+  cleared: 'Block removed from the gateway',
+  cancelled: 'Response cancelled',
+  apply_unconfirmed: 'Gateway could not confirm the block',
+  reverse_unconfirmed: 'Gateway could not confirm the removal',
+  cleanup_unconfirmed: 'Gateway could not confirm the cleanup',
+}
 
 function showValue(value) {
   if (Array.isArray(value)) return value.join(', ')
   if (value !== null && typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+function describe(event) {
+  const details = event.details
+  const [kind, name] = event.event_type.split('.')
+  if (event.event_type === 'incident.created') {
+    return 'Detected as ' + details.severity + ' (score ' + details.risk_score + ')'
+  }
+  if (event.event_type === 'incident.escalated') {
+    return 'Severity changed from ' + details.from + ' to ' + details.to + ' (score ' + details.risk_score + ')'
+  }
+  if (event.event_type === 'incident.status_changed') {
+    if (details.to === 'resolved') return 'Marked as resolved'
+    if (details.from === 'resolved') return 'Reopened as ' + details.to
+    return 'Status changed from ' + details.from + ' to ' + details.to
+  }
+  if (event.event_type === 'ai_analysis.attached') return 'AI assessment added by ' + details.model
+  if (kind === 'response_action') {
+    const text = RESPONSE_EVENTS[name] || readable(name)
+    return details.action_type ? text + ' (' + details.action_type.replace('_', ' ') + ')' : text
+  }
+  return readable(event.event_type.replace('.', '_'))
 }
 
 function Details({ values }) {
@@ -32,7 +67,7 @@ function Details({ values }) {
 function Assessment({ analysis }) {
   if (!analysis) return <p className="muted">No AI analysis for this incident yet.</p>
   if (analysis.status === 'pending' || analysis.status === 'running') {
-    return <p className="muted">DeepSeek is analysing this incident...</p>
+    return <p className="muted">The AI is analysing this incident...</p>
   }
   if (analysis.status === 'failed') return <p className="error">The analysis failed: {analysis.error_message}</p>
   if (analysis.status === 'cancelled') return <p className="muted">The analysis was cancelled.</p>
@@ -47,24 +82,50 @@ function Assessment({ analysis }) {
   )
 }
 
+function History({ events, error }) {
+  if (!events) return <p className={error ? 'error' : 'muted'}>{error || 'Loading the history...'}</p>
+  if (events.length === 0) return <p className="muted">Nothing happened on this incident yet.</p>
+  return (
+    <ol className="history">
+      {events.map((event) => (
+        <li key={event.id} className={event.outcome === 'failure' ? 'failed' : undefined}>
+          <div className="history-meta">{formatTime(event.occurred_at)} · {event.actor || 'INDS'}</div>
+          <div>{describe(event)}</div>
+          {event.details.note && <q>{event.details.note}</q>}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 export default function IncidentDetail({ id, onChange, onClose }) {
   const { data: incident, error, reload } = usePolling('/api/incidents/' + id)
+  const { data: history, error: historyError, reload: reloadHistory } = usePolling('/api/incidents/' + id + '/history')
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState('')
   const [confirming, setConfirming] = useState(null)
+  const [note, setNote] = useState('')
 
   async function send(path, method, body) {
     setBusy(true)
     setActionError('')
+    let done = false
     try {
       await api(path, { method, body })
       reload()
+      reloadHistory()
       onChange()
+      done = true
     } catch (err) {
       setActionError(err.message)
     }
     setBusy(false)
     setConfirming(null)
+    return done
+  }
+
+  async function changeStatus(status) {
+    if (await send('/api/incidents/' + id, 'PATCH', { status, note })) setNote('')
   }
 
   if (error && !incident) {
@@ -98,19 +159,27 @@ export default function IncidentDetail({ id, onChange, onClose }) {
         <span className="capitalize">{incident.status}</span>
       </div>
 
+      <input
+        className="status-note"
+        placeholder="Note for the history (optional)"
+        maxLength={300}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+      />
+
       <div className="buttons">
         {incident.status === 'open' && (
-          <button className="button small" disabled={busy} onClick={() => send('/api/incidents/' + id, 'PATCH', { status: 'investigating' })}>
+          <button className="button small" disabled={busy} onClick={() => changeStatus('investigating')}>
             Start investigating
           </button>
         )}
         {incident.status !== 'resolved' && (
-          <button className="button small secondary" disabled={busy} onClick={() => send('/api/incidents/' + id, 'PATCH', { status: 'resolved' })}>
+          <button className="button small secondary" disabled={busy} onClick={() => changeStatus('resolved')}>
             Mark as resolved
           </button>
         )}
         {incident.status === 'resolved' && (
-          <button className="button small secondary" disabled={busy} onClick={() => send('/api/incidents/' + id, 'PATCH', { status: 'open' })}>
+          <button className="button small secondary" disabled={busy} onClick={() => changeStatus('open')}>
             Reopen
           </button>
         )}
@@ -182,6 +251,9 @@ export default function IncidentDetail({ id, onChange, onClose }) {
           {action.error_message && <p className="error small">{action.error_message}</p>}
         </div>
       ))}
+
+      <h3>History</h3>
+      <History events={history} error={historyError} />
     </section>
   )
 }
