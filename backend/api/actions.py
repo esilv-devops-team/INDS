@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from backend.api.auth import get_current_admin
@@ -13,8 +13,8 @@ from backend.database.models import Administrator, Incident, MonitoringRun, Resp
 from backend.database.session import get_session
 from backend.services.monitoring import configured_interface
 from backend.services.response_execution import (
-    OUTSTANDING, ResponseError, enforcement_enabled, execute_block, reserve_response_write,
-    response_event, validate_block,
+    OUTSTANDING, ResponseError, enforcement_enabled, execute_block, open_block_exists,
+    reserve_response_write, response_event, validate_block,
 )
 from backend.services.response_policy import assess_response
 
@@ -79,14 +79,7 @@ def propose_action(data: Proposal, request: Request,
         if not data.reason.strip():
             raise HTTPException(status_code=422, detail="Provide a response reason.")
         device = incident.source_device
-        duplicate = session.scalar(select(ResponseAction.id).where(
-            ResponseAction.target_mac == device.mac_address,
-            ResponseAction.action_type == "block",
-            or_(and_(ResponseAction.approval_status == "pending", or_(
-                ResponseAction.expires_at.is_(None), ResponseAction.expires_at > utc_now(),
-            )), ResponseAction.execution_status.in_(OUTSTANDING)),
-        ).limit(1))
-        if duplicate is not None:
+        if open_block_exists(session, device.mac_address):
             raise HTTPException(status_code=409, detail="A block for this device already requires attention.")
         duration = data.duration_minutes or (15 if policy["recommendation"] == "temporary_block" else None)
         now = utc_now()

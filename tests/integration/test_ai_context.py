@@ -183,3 +183,20 @@ def test_describe_address(database, monkeypatch, value, expected):
     monkeypatch.setenv("INDS_MONITOR_AP_MAC", "02:00:00:00:00:AA")
     with Session(engine) as session:
         assert describe_address(session, value) == expected
+
+
+def test_nested_evidence_is_cleaned(database):
+    engine, _, _ = database
+    with Session(engine) as session:
+        add_run(session)
+        scanner = add_device(session, SCANNER, "192.168.50.66")
+        evidence = {"source_ip": "192.168.50.66", "occurrences": 2, "hostname": "kali",
+                    "latest_finding": {"source_ip": "192.168.50.66", "target_ip": "192.168.50.31",
+                                       "hostname": "kali", "distinct_ports": 25}}
+        incident = add_incident(session, scanner, evidence=evidence)
+        context = build_context(session, incident)
+
+    assert context["evidence"] == {"source": f"device-{scanner.id}", "occurrences": 2,
+                                   "latest_finding": {"source": f"device-{scanner.id}", "target": "lan host",
+                                                      "distinct_ports": 25}}
+    assert leaks(context, "192.168.50.66", "192.168.50.31", "kali") == []
