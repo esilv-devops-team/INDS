@@ -51,6 +51,8 @@ def clean_evidence(session, evidence):
     for key, value in evidence.items():
         if key.endswith(("_ip", "_mac")):
             cleaned[key.rsplit("_", 1)[0]] = describe_address(session, value)
+        elif isinstance(value, dict):
+            cleaned[key] = clean_evidence(session, value)
         elif key not in HIDDEN_KEYS:
             cleaned[key] = value
     return cleaned

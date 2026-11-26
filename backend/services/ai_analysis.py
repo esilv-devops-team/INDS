@@ -9,6 +9,7 @@ from backend.database.base import utc_now
 from backend.database.models import AIAnalysis
 from backend.services import deepseek
 from backend.services.ai_context import build_context
+from backend.services.ai_recommendation import propose_response
 from backend.services.audit import record_event
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ def save_result(engine, analysis_id, assessment=None, error=None):
             return
 
         if error is None:
+            assessment = propose_response(session, analysis, assessment)
             analysis.status = "succeeded"
             analysis.assessment_json = assessment
             analysis.completed_at = utc_now()

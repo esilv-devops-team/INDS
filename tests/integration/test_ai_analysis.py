@@ -84,7 +84,9 @@ def test_successful_analysis(database, answer):
     assert not process_next(engine)
 
     analysis, = analyses(engine, incident_id)
-    assert (analysis.status, analysis.assessment_json, analysis.prompt_version) == ("succeeded", ASSESSMENT, "v1")
+    assert (analysis.status, analysis.prompt_version) == ("succeeded", "v1")
+    assert analysis.assessment_json == {**ASSESSMENT, "response_note": "Block not proposed: the policy only blocks "
+                                        "High or Critical incidents (this one is Medium)."}
     assert analysis.started_at is not None and analysis.completed_at is not None
     assert analysis.input_summary_json == seen[0]
     assert seen[0]["threat_type"] == "PORT_SCAN"

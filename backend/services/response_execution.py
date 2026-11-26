@@ -4,7 +4,7 @@ import logging
 import os
 import subprocess
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
@@ -77,6 +77,16 @@ def validate_block(session, action, guest_port):
     ).limit(1))
     if existing is not None:
         raise ResponseError(409, "A block for this device already requires attention.")
+
+
+def open_block_exists(session, mac):
+    return session.scalar(select(ResponseAction.id).where(
+        ResponseAction.target_mac == mac,
+        ResponseAction.action_type == "block",
+        or_(and_(ResponseAction.approval_status == "pending", or_(
+            ResponseAction.expires_at.is_(None), ResponseAction.expires_at > utc_now(),
+        )), ResponseAction.execution_status.in_(OUTSTANDING)),
+    ).limit(1)) is not None
 
 
 def response_event(session, action, event, admin=None, *, outcome="success"):
