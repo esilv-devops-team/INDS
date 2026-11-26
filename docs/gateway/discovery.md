@@ -1,5 +1,24 @@
 # Device discovery (INDS-39)
 
+## Routed Raspberry Pi
+
+Managed monitoring uses `INDS_MONITOR_INTERFACE=eth1` for the Pi's LAN.
+The routed default is `192.168.50.1/24`, overridable with
+`INDS_LAN_ADDRESS`. The collector reads
+`/var/lib/misc/dnsmasq.leases` (override with `INDS_DHCP_LEASE_FILE`)
+and reachable IPv4 entries from `ip neigh`. Set `INDS_MONITOR_AP_MAC`
+if the access point itself needs to be excluded from inventory.
+
+Confirmed leases take precedence over reachable neighbors and packet ARP claims.
+A DHCP request can identify a MAC and hostname without establishing ownership
+of the requested IP. Leases alone do not establish recent activity. A private
+MAC is treated as a separate observed identity. Capture on `eth1` sees routed
+client traffic and frames delivered by the AP to that interface. Traffic switched
+locally by the AP may not reach it. No second capture interface is required
+for this configuration.
+
+## Standalone and legacy bridge discovery
+
 `gateway/discovery.py` runs on the Pi. It listens to ARP and DHCP on the port
 connected to the AP, and every 30 seconds sends the devices it saw to
 `POST /api/devices/observations`. The backend saves them (INDS-41).
