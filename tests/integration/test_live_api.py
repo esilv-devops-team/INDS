@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.database.base import utc_now
 from backend.database.models import Device, Incident, MonitoringRun, ResponseAction
 from backend.services import live_traffic, monitoring
+from backend.services.audit import record_event
 from backend.services.live_traffic import LiveFeed, WatchCapture
 from gateway import traffic
 from gateway.traffic import TrafficMetadata
@@ -118,3 +119,33 @@ def test_marks_when_inds_is_on(admin_api, database, live):
     response = admin_api.post("/api/live/watch")
     assert (response.status_code, response.json()["error"]["message"]) == (
         409, "INDS is ON, the live view already uses its capture.")
+
+
+def test_events_feed(admin_api, database):
+    engine, _, _ = database
+    assert admin_api.get("/api/live/events").json() == []
+    with Session(engine) as session, session.begin():
+        incident = Incident(rule_code="PORT_SCAN", source_ip="192.168.50.66", target_ip="192.168.50.1",
+                            severity="High", risk_score=65)
+        session.add(incident)
+        session.flush()
+        for number in range(25):
+            record_event(session, "incident.created", incident_id=incident.id,
+                         details={"rule": "PORT_SCAN", "severity": "High", "number": number})
+        record_event(session, "incident.status_changed", incident_id=incident.id, details={"from": "open", "to": "resolved"})
+        record_event(session, "monitoring.start")
+        record_event(session, "ai_analysis.attached", incident_id=incident.id, details={"model": "deepseek-flash"})
+        incident_id = incident.id
+
+    first = admin_api.get("/api/live/events").json()
+    assert len(first) == 20
+    assert first[-1]["event_type"] == "ai_analysis.attached"
+    assert first[0]["details"]["number"] == 6
+    assert {event["incident_id"] for event in first} == {incident_id}
+    assert [event["id"] for event in first] == sorted(event["id"] for event in first)
+
+    with Session(engine) as session, session.begin():
+        record_event(session, "response_action.applied", incident_id=incident_id, details={"action_type": "block"})
+    newer = admin_api.get(f"/api/live/events?after={first[-1]['id']}").json()
+    assert [event["event_type"] for event in newer] == ["response_action.applied"]
+    assert admin_api.get(f"/api/live/events?after={newer[0]['id']}").json() == []

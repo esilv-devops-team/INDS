@@ -5,12 +5,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.api.auth import get_current_admin
-from backend.database.models import Administrator, Incident, MonitoringRun, ResponseAction
+from backend.database.models import Administrator, AuditEvent, Incident, MonitoringRun, ResponseAction
 from backend.database.session import get_session
 from backend.services.live_traffic import feed, watch
 from backend.services.monitoring import configured_interface
 
 router = APIRouter(prefix="/api/live", tags=["live"])
+
+EVENT_TYPES = (
+    "incident.created", "incident.escalated", "ai_analysis.attached", "ai_analysis.failed",
+    "response_action.proposed", "response_action.approved", "response_action.rejected",
+    "response_action.applied", "response_action.cleared",
+)
+FIRST_EVENTS = 20
+MAX_EVENTS = 50
 
 
 def current_run(session):
@@ -88,3 +96,21 @@ def start_watch(session: Session = Depends(get_session), admin: Administrator = 
 @router.delete("/watch", status_code=204)
 def stop_watch(admin: Administrator = Depends(get_current_admin)):
     watch.stop()
+
+
+@router.get("/events")
+def live_events(
+    after: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+    admin: Administrator = Depends(get_current_admin),
+):
+    query = select(AuditEvent).where(AuditEvent.event_type.in_(EVENT_TYPES), AuditEvent.incident_id.is_not(None))
+    if after:
+        events = session.scalars(query.where(AuditEvent.id > after).order_by(AuditEvent.id).limit(MAX_EVENTS)).all()
+    else:
+        events = list(reversed(session.scalars(query.order_by(AuditEvent.id.desc()).limit(FIRST_EVENTS)).all()))
+    return [
+        {"id": event.id, "occurred_at": event.occurred_at, "event_type": event.event_type,
+         "incident_id": event.incident_id, "details": event.details_json}
+        for event in events
+    ]
