@@ -169,8 +169,9 @@ def test_attach_ai_assessment(admin_api, database):
 
     with Session(engine) as session:
         sent = session.scalar(select(AIAnalysis)).input_summary_json
-        assert sent["source_device"] == f"device-{device_id}"
-        assert sent["evidence"] == {"protocol": "TCP", "sample_ports": "21,22,23", "distinct_ports": 20,
+        assert sent["source"] == f"device-{device_id}"
+        assert sent["evidence"] == {"source": f"device-{device_id}", "target": "lan host", "protocol": "TCP",
+                                    "sample_ports": "21,22,23", "distinct_ports": 20,
                                     "rule_severity": "Medium", "occurrences": 1}
         assert "192.168.50.66" not in str(sent)
 
