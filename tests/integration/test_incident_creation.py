@@ -14,6 +14,7 @@ from backend.database.models import AIAnalysis, Administrator, AuditEvent, Devic
 from backend.services import monitoring
 from backend.services.detection_rules import update_rule
 from backend.services.incident_creation import record_findings
+from backend.services.live_traffic import LiveFeed
 from detection.base import Finding
 from gateway.traffic import read_metadata
 
@@ -241,8 +242,11 @@ def test_monitoring_creates_incidents(admin_api, database, controller, monkeypat
 
     monkeypatch.setattr(monitoring, "open_capture", Mock(return_value=Mock()))
     monkeypatch.setattr(monitoring, "capture_batch", capture)
+    monkeypatch.setattr(monitoring, "live_watch", Mock())
+    monkeypatch.setattr(monitoring, "live_feed", LiveFeed())
 
     assert admin_api.post("/api/system/monitoring/start").status_code == 204
+    monitoring.live_watch.stop.assert_called_once_with()
     incidents = []
     for _ in range(50):
         incidents = admin_api.get("/api/incidents").json()
@@ -253,4 +257,7 @@ def test_monitoring_creates_incidents(admin_api, database, controller, monkeypat
 
     incident, = incidents
     assert (incident["rule_code"], incident["severity"], incident["status"]) == ("PORT_SCAN", "Medium", "open")
+    live, _ = monitoring.live_feed.since(0)
+    assert [item["mode"] for item in live] == ["protect"] * 6
+    assert live[0]["info"] == "20 → 20 [SYN]"
     assert incident["target_ip"] == "192.168.50.20"

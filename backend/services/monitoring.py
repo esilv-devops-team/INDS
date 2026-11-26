@@ -19,6 +19,8 @@ from backend.services.audit import record_event
 from backend.services.detection_rules import arp_spoofing_settings, port_scan_settings, traffic_spike_settings
 from backend.services.device_inventory import expire_addresses, save_observation
 from backend.services.incident_creation import record_findings
+from backend.services.live_traffic import feed as live_feed
+from backend.services.live_traffic import watch as live_watch
 from backend.services.port_scan_detection import evaluate_port_scan
 from backend.services.response_execution import ResponseError, expire_blocks, reconcile_blocks
 from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
@@ -191,6 +193,7 @@ class MonitoringController:
             interface = configured_interface()
             if not interface:
                 raise MonitoringError(503, "Set INDS_MONITOR_INTERFACE to the AP-facing port.")
+            live_watch.stop()
             with Session(engine) as session:
                 try:
                     detection_settings = traffic_spike_settings(session)
@@ -289,7 +292,16 @@ class MonitoringController:
                     packet_findings.extend(evaluate_arp(arp_engine, metadata, devices, started_at))
                     packet_findings.extend(evaluate_port_scan(scan_engine, metadata, devices, started_at))
 
-                capture_batch(interface, capture_socket, packets.append if lan else receive, discoveries)
+                store = packets.append if lan else receive
+
+                def handle(metadata):
+                    store(metadata)
+                    try:
+                        live_feed.add(metadata, "protect")
+                    except (AttributeError, TypeError, ValueError):
+                        logger.debug("Skipping a packet for the live view")
+
+                capture_batch(interface, capture_socket, handle, discoveries)
                 if self.stop_event.is_set():
                     break
                 if lan:
