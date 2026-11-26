@@ -2,8 +2,10 @@
 
 import logging
 import os
+import subprocess
 from dataclasses import asdict
 from datetime import timedelta
+from ipaddress import IPv4Interface
 import json
 from threading import Event, Lock, Thread
 
@@ -11,14 +13,14 @@ from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
-from backend.database.models import Device, MonitoringRun, ResponseAction
+from backend.database.models import Administrator, Device, MonitoringPreference, MonitoringRun, ResponseAction
 from backend.services.arp_detection import evaluate_arp
 from backend.services.audit import record_event
 from backend.services.detection_rules import arp_spoofing_settings, port_scan_settings, traffic_spike_settings
-from backend.services.device_inventory import save_observation
+from backend.services.device_inventory import expire_addresses, save_observation
 from backend.services.incident_creation import record_findings
 from backend.services.port_scan_detection import evaluate_port_scan
-from backend.services.response_execution import ResponseError, reconcile_blocks
+from backend.services.response_execution import ResponseError, expire_blocks, reconcile_blocks
 from backend.services.traffic_activity import TrafficAccumulator, persist_summaries
 from backend.services.traffic_detection import TrafficDetection
 from detection.registry import arp_rules, port_scan_rules
@@ -37,6 +39,11 @@ def configured_interface():
     return os.environ.get("INDS_MONITOR_INTERFACE", "").strip()
 
 
+def routed_lan(interface):
+    address = os.environ.get("INDS_LAN_ADDRESS", "192.168.50.1/24" if interface == "eth1" else "")
+    return IPv4Interface(address) if address else None
+
+
 def open_capture(interface):
     from scapy.all import conf
 
@@ -47,9 +54,11 @@ def capture_batch(interface, capture_socket, receive, discoveries):
     from gateway.discovery import add_device, read_packet
     from gateway.traffic import capture_traffic
 
+    provenance = routed_lan(interface) is not None
+
     def observe_device(packet):
         try:
-            add_device(discoveries, read_packet(packet))
+            add_device(discoveries, read_packet(packet, provenance=provenance))
         except (AttributeError, IndexError, TypeError, ValueError):
             logger.debug("Skipping malformed discovery packet on %s", interface)
 
@@ -63,6 +72,43 @@ def guest_observations(interface, discoveries):
     guests = macs_on_port(interface)
     ignored = os.environ.get("INDS_MONITOR_AP_MAC", "").strip().upper()
     return [device for mac, device in discoveries.items() if mac in guests and mac != ignored]
+
+
+def routed_observations(interface, lan, discoveries, now, *, snapshot):
+    from gateway.discovery import is_real_mac, lan_client_ip, read_leases, read_neighbors
+    from backend.services.vendor_lookup import normalize_mac
+
+    observations = list(discoveries.values())
+    if snapshot:
+        sources = (
+            (read_neighbors, (interface,)),
+            (read_leases, (os.environ.get("INDS_DHCP_LEASE_FILE", "/var/lib/misc/dnsmasq.leases"), now)),
+        )
+        for read, args in sources:
+            try:
+                observations.extend(read(*args))
+            except (OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError) as error:
+                logger.warning("Routed discovery source %s unavailable: %s", read.__name__, error)
+    ignored = os.environ.get("INDS_MONITOR_AP_MAC", "").strip().upper()
+    seen = set()
+    for item in observations:
+        try:
+            mac = normalize_mac(item["mac"])
+        except ValueError:
+            continue
+        if mac == ignored or not is_real_mac(mac):
+            continue
+        source = item["source"]
+        ip = lan_client_ip(item["ip"], lan)
+        if source != "dhcp_request" and not ip:
+            continue
+        key = (mac, source, ip)
+        if key in seen:
+            continue
+        seen.add(key)
+        expiration = item.get("expires_at") if source == "dhcp_lease" else now + timedelta(minutes=2)
+        yield dict(mac=mac, ip=None if source == "dhcp_request" else ip,
+                   hostname=item["hostname"], source=source, expires_at=expiration)
 
 
 def cancel_pending_actions(session, admin=None):
@@ -84,6 +130,8 @@ def close_run(engine, reason, *, run_id=None, admin=None):
     if run_id is not None:
         command = command.where(MonitoringRun.id == run_id)
     with Session(engine) as session, session.begin():
+        if reason == "administrator":
+            session.merge(MonitoringPreference(id=1, enabled_by_id=None))
         closed_id = session.execute(command.values(
             ended_at=case((MonitoringRun.started_at > now, MonitoringRun.started_at), else_=now),
             stop_reason=reason,
@@ -103,6 +151,28 @@ class MonitoringController:
         self.worker = None
         self.engine = None
         self.firewall_cleanup_needed = False
+        self.recovery_error = None
+        self.detection_degraded = False
+
+    def recover(self, engine, *, preferences_available=True):
+        close_run(engine, "interrupted")
+        try:
+            self.cleanup_firewall(engine)
+            if not preferences_available:
+                return
+            with Session(engine) as session:
+                preference = session.get(MonitoringPreference, 1)
+                if not preference or not preference.enabled_by_id:
+                    return
+                admin = session.get(Administrator, preference.enabled_by_id)
+                if admin:
+                    self.start(engine, admin, recovering=True)
+        except MonitoringError as error:
+            self.recovery_error = str(error)
+            with Session(engine) as session, session.begin():
+                record_event(session, "monitoring.recovery_failed", outcome="failure",
+                             details={"reason": str(error)})
+            logger.warning("Monitoring startup recovery failed: %s", error)
 
     def cleanup_firewall(self, engine, admin=None):
         try:
@@ -112,7 +182,7 @@ class MonitoringController:
             raise MonitoringError(error.status, str(error)) from error
         self.firewall_cleanup_needed = False
 
-    def start(self, engine, admin):
+    def start(self, engine, admin, *, recovering=False):
         with self.lock:
             if self.worker is not None and self.worker.is_alive():
                 if self.stop_event.is_set():
@@ -130,9 +200,11 @@ class MonitoringController:
                     raise MonitoringError(503, f"Invalid detection settings: {error}") from error
                 if session.scalar(select(MonitoringRun.id).where(MonitoringRun.ended_at.is_(None))):
                     raise MonitoringError(409, "Stop the unfinished monitoring run before starting again.")
-            self.cleanup_firewall(engine)
+            if not recovering:
+                self.cleanup_firewall(engine)
 
             try:
+                routed_lan(interface)
                 capture_socket = open_capture(interface)
             except Exception as error:
                 logger.exception("Unable to open capture on %s", interface)
@@ -144,7 +216,9 @@ class MonitoringController:
                     run = MonitoringRun(started_by_id=admin.id)
                     session.add(run)
                     session.flush()
-                    record_event(session, "monitoring.start", admin=admin, monitoring_run_id=run.id)
+                    session.merge(MonitoringPreference(id=1, enabled_by_id=admin.id))
+                    record_event(session, "monitoring.start", admin=None if recovering else admin,
+                                 monitoring_run_id=run.id, details={"recovered": True} if recovering else None)
                     run_id, started_at = run.id, run.started_at
                 self.stop_event.clear()
                 self.worker = Thread(
@@ -154,6 +228,7 @@ class MonitoringController:
                 )
                 self.worker.start()
                 self.engine = engine
+                self.recovery_error = None
             except Exception:
                 capture_socket.close()
                 if run_id is not None:
@@ -164,6 +239,8 @@ class MonitoringController:
         with self.lock:
             self.stop_event.set()
             close_run(engine, "administrator" if admin else "shutdown", admin=admin)
+            if admin:
+                self.recovery_error = None
             worker = self.worker
             self.cleanup_firewall(engine, admin)
         if worker is not None and worker.is_alive():
@@ -196,35 +273,63 @@ class MonitoringController:
         arp_engine = arp_rules(**arp_settings)
         scan_engine = port_scan_rules(scan_settings)
         try:
+            lan = routed_lan(interface)
+            next_snapshot = started_at
+            next_expiry_check = started_at
             while not self.stop_event.is_set():
                 with Session(engine) as session:
                     devices = dict(session.execute(select(Device.mac_address, Device.id)).tuples().all())
                 batch = TrafficAccumulator(devices, started_at)
                 discoveries = {}
                 packet_findings = []
+                packets = []
 
                 def receive(metadata):
                     batch.add(metadata)
                     packet_findings.extend(evaluate_arp(arp_engine, metadata, devices, started_at))
                     packet_findings.extend(evaluate_port_scan(scan_engine, metadata, devices, started_at))
 
-                capture_batch(interface, capture_socket, receive, discoveries)
+                capture_batch(interface, capture_socket, packets.append if lan else receive, discoveries)
                 if self.stop_event.is_set():
                     break
-                guests = guest_observations(interface, discoveries) if discoveries else []
-                if batch.windows or guests:
+                if lan:
+                    now = utc_now()
+                    if now >= next_expiry_check and self.lock.acquire(blocking=False):
+                        try:
+                            if not self.stop_event.is_set():
+                                expire_blocks(engine)
+                        finally:
+                            self.lock.release()
+                        next_expiry_check = now + timedelta(seconds=5)
+                    snapshot = now >= next_snapshot
+                    guests = list(routed_observations(interface, lan, discoveries, now, snapshot=snapshot))
+                    if snapshot:
+                        next_snapshot = now + timedelta(seconds=15)
+                else:
+                    guests = guest_observations(interface, discoveries) if discoveries else []
+                if lan or batch.windows or guests:
                     with Session(engine) as session, session.begin():
                         if not persist_summaries(session, run_id, batch.windows, batch.last_seen):
                             break
+                        if lan:
+                            expire_addresses(session, now)
                         for guest in guests:
                             save_observation(session, **guest)
+                        if lan and packets:
+                            session.flush()
+                            devices.update(session.execute(select(Device.mac_address, Device.id)).tuples().all())
+                            for packet in packets:
+                                receive(packet)
+                            persist_summaries(session, run_id, batch.windows, batch.last_seen)
                 try:
                     self.report_findings(engine, run_id, packet_findings)
                     with Session(engine) as session:
                         settled = utc_now() - timedelta(seconds=CAPTURE_SECONDS)
                         findings = detection.evaluate_ready(session, run_id, settled)
                     self.report_findings(engine, run_id, findings)
+                    self.detection_degraded = False
                 except Exception:
+                    self.detection_degraded = True
                     logger.exception("Traffic detection failed for monitoring run %s", run_id)
         except Exception:
             logger.exception("Traffic collector failed on %s", interface)

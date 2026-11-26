@@ -1,0 +1,21 @@
+[Unit]
+Description=INDS restricted firewall request
+
+[Service]
+User=inds-firewall
+Group=inds-firewall
+WorkingDirectory=/opt/inds/current
+Environment=PATH=/usr/sbin:/usr/bin
+EnvironmentFile=/etc/inds/firewall.env
+ExecStart=/opt/inds/current/.venv/bin/python -B -m gateway.firewall_helper
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+RuntimeMaxSec=35
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

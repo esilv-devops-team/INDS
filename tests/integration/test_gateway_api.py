@@ -62,3 +62,15 @@ def test_discovery_silent_for_too_long(admin_api, database):
     service = services_by_name(admin_api)["Discovery sniffer"]
     assert service["state"] == "down"
     assert service["detail"] == "no report for 10 min"
+
+
+def test_routed_health_reports_link_and_unknown_dhcp(admin_api, monkeypatch, tmp_path):
+    monkeypatch.setenv("INDS_MONITOR_INTERFACE", "eth1")
+    monkeypatch.setenv("INDS_DHCP_LEASE_FILE", str(tmp_path / "missing.leases"))
+    monkeypatch.setattr(gateway_health, "read_interfaces",
+                        lambda: [{"name": "eth1", "is_up": True, "is_bridge": False}])
+    services = services_by_name(admin_api)
+    assert services["Routed LAN"]["state"] == "ok"
+    assert services["DHCP evidence"]["state"] == "warn"
+    assert services["Monitoring"]["state"] == "warn"
+    assert "Bridge br-inds" not in services

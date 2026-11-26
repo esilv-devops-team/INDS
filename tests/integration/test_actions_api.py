@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
 from backend.database.models import AIAnalysis, Administrator, AuditEvent, Device, Incident, MonitoringRun, ResponseAction
-from gateway import discovery, firewall
+from backend.services import response_execution
+from gateway import discovery, firewall, firewall_client
 
 
 def add_incident_with_response(engine):
@@ -72,6 +73,81 @@ def configure_enforcement(monkeypatch, engine, action_id):
         action.device = Device(mac_address=mac)
     monkeypatch.setattr(discovery, "macs_on_port", Mock(return_value={mac}))
     return mac
+
+
+def test_routed_proposal_approval_expiration_and_restart(admin_api, database, monkeypatch):
+    engine = database[0]
+    mac = "02:00:00:00:00:42"
+    address = "192.168.50.121"
+    with Session(engine) as session, session.begin():
+        device = Device(mac_address=mac, current_ip=address, ip_source="dhcp_lease")
+        incident = Incident(rule_code="TRAFFIC_SPIKE", source_ip=address, target_ip="multiple",
+                            severity="Critical", risk_score=85, source_device=device)
+        session.add(incident)
+        session.flush()
+        incident_id = incident.id
+    monkeypatch.setenv("INDS_FIREWALL_ENABLED", "1")
+    monkeypatch.setenv("INDS_MONITOR_INTERFACE", "eth1")
+    monkeypatch.setenv("INDS_MONITOR_AP_MAC", "02:00:00:00:00:01")
+    monkeypatch.setenv("INDS_PROTECTED_MACS", "02:00:00:00:00:02")
+    monkeypatch.setattr(discovery, "read_neighbors", Mock(return_value=[{"mac": mac, "ip": address}]))
+    set_block = Mock()
+    clear_blocks = Mock()
+    monkeypatch.setattr(firewall_client, "set_block", set_block)
+    monkeypatch.setattr(firewall_client, "clear_blocks", clear_blocks)
+
+    incident = admin_api.get(f"/api/incidents/{incident_id}").json()
+    assert incident["policy"]["recommendation"] == "temporary_block"
+    payload = {"incident_id": incident_id, "reason": "Contain while investigating", "duration_minutes": 1}
+    proposed = admin_api.post("/api/actions", json=payload)
+    assert proposed.status_code == 201
+    assert proposed.json()["approval_status"] == "pending"
+    assert proposed.json()["expires_at"]
+    assert admin_api.post("/api/actions", json=payload).status_code == 409
+    set_block.assert_not_called()
+
+    start_monitoring(admin_api, engine)
+    action_id = proposed.json()["id"]
+    applied = admin_api.post(f"/api/actions/{action_id}/decision", json={"decision": "approved"})
+    assert applied.status_code == 200
+    assert applied.json()["execution_status"] == "active"
+    assert set_block.call_args.args == (mac, True)
+    assert 0 < set_block.call_args.kwargs["timeout_seconds"] <= 60
+
+    with monkeypatch.context() as future:
+        future.setattr(response_execution, "utc_now", lambda: utc_now() + timedelta(minutes=2))
+        response_execution.expire_blocks(engine)
+    assert set_block.call_args.args == (mac, False)
+    second = admin_api.post("/api/actions", json=payload).json()["id"]
+    assert admin_api.post(f"/api/actions/{second}/decision", json={"decision": "approved"}).status_code == 200
+    response_execution.reconcile_blocks(engine)
+    clear_blocks.assert_called_once_with()
+    with Session(engine) as session:
+        assert session.get(ResponseAction, action_id).execution_status == "removed"
+        assert session.get(ResponseAction, second).execution_status == "removed"
+        assert list(session.scalars(select(AuditEvent.event_type).where(AuditEvent.response_action_id == action_id)
+                                    .order_by(AuditEvent.id))) == [
+            "response_action.proposed", "response_action.approved", "response_action.applied",
+            "response_action.expiry_due", "response_action.cleared",
+        ]
+
+
+def test_expired_pending_proposal_cancels_without_firewall(database, monkeypatch):
+    engine = database[0]
+    _, action_id = add_incident_with_response(engine)
+    with Session(engine) as session, session.begin():
+        action = session.get(ResponseAction, action_id)
+        action.expires_at = utc_now() + timedelta(minutes=1)
+    monkeypatch.setenv("INDS_FIREWALL_ENABLED", "0")
+    monkeypatch.setattr(response_execution, "utc_now", lambda: utc_now() + timedelta(minutes=2))
+    set_block = Mock()
+    monkeypatch.setattr(firewall, "set_block", set_block)
+    response_execution.expire_blocks(engine)
+    set_block.assert_not_called()
+    with Session(engine) as session:
+        assert session.get(ResponseAction, action_id).approval_status == "cancelled"
+        event = session.scalar(select(AuditEvent).where(AuditEvent.response_action_id == action_id))
+        assert event.event_type == "response_action.proposal_expired"
 
 
 def test_approved_block_is_confirmed_and_idempotently_reversed(admin_api, database, monkeypatch):

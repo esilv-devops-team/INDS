@@ -67,6 +67,10 @@ def test_history_tells_the_whole_story(admin_api, database):
     response = admin_api.get(f"/api/incidents/{incident_id}/history")
     assert response.status_code == 200
     events = response.json()
+    findings = [event for event in events if event["event_type"] == "incident.finding_correlated"]
+    assert [event["details"]["evidence"]["occurrences"] for event in findings] == [2, 3, 4, 5]
+    assert all(event["actor"] is None and event["details"]["observed_at"] for event in findings)
+    events = [event for event in events if event["event_type"] != "incident.finding_correlated"]
     assert [event["event_type"] for event in events] == [
         "incident.created",
         "incident.escalated",

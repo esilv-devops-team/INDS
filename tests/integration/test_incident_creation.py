@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from dataclasses import replace
 from threading import Event
 from unittest.mock import Mock
 
@@ -119,6 +120,40 @@ def test_new_incident_after_the_window_or_for_another_target(database):
         port_scan(device_id), port_scan(device_id, minutes=11), port_scan(device_id, minutes=12, target="192.168.50.30"),
     ])
     assert [created for _, created in results] == [True, True, True]
+
+
+def test_unknown_device_correlation_requires_matching_mac_and_preserves_evidence(database):
+    engine, _, _ = database
+    run_id, _ = prepare(engine)
+    first = port_scan(mac="02:00:00:00:00:77")
+    repeated = replace(first, timestamp=first.timestamp + timedelta(minutes=1),
+                       measured={"distinct_ports": 25})
+    other = replace(repeated, source_mac="02:00:00:00:00:88")
+    results = record(engine, run_id, [first, repeated, other])
+    assert [created for _, created in results] == [True, False, True]
+    evidence = load(engine, results[0][0]).evidence_json
+    assert evidence["distinct_ports"] == 20
+    assert evidence["latest_finding"]["distinct_ports"] == 25
+    with Session(engine) as session:
+        repeat = session.scalar(select(AuditEvent).where(
+            AuditEvent.incident_id == results[0][0], AuditEvent.event_type == "incident.finding_correlated",
+        ))
+        assert repeat.details_json["evidence"]["distinct_ports"] == 25
+
+
+def test_incident_detail_links_history_for_known_device(admin_api, database):
+    engine, _, _ = database
+    run_id, device_id = prepare(engine)
+    results = record(engine, run_id, [
+        port_scan(device_id),
+        port_scan(device_id, minutes=11),
+        port_scan(minutes=12, mac="02:00:00:00:00:77"),
+    ])
+    first_id, second_id, _ = [incident_id for incident_id, _ in results]
+    response = admin_api.get(f"/api/incidents/{second_id}")
+    assert response.status_code == 200
+    related, = response.json()["related_incidents"]
+    assert (related["id"], related["relationship"]) == (first_id, "same_rule_and_target")
 
 
 def test_other_rules_and_unknown_devices(database):

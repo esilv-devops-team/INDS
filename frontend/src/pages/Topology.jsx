@@ -35,8 +35,11 @@ export default function Topology() {
   const [page, setPage] = useState(0)
   const devices = inventory.data || []
   const now = inventory.updatedAt?.getTime()
-  const recent = (device) => wasRecentlySeen(device.last_seen_at, now)
+  const recent = (device) => device.last_active_at && wasRecentlySeen(device.last_active_at, now)
+  const lan = gateway.data?.interfaces.find((item) => item.role === 'lan')
+  const routed = gateway.data?.services.some((service) => service.name === 'Routed LAN')
   const bridge = gateway.data?.interfaces.find((item) => item.is_bridge)
+  const gatewayLink = routed ? lan : bridge
   const backbone = [
     {
       key: 'router', title: 'Upstream router', icon: Router, caption: 'DHCP and internet',
@@ -45,11 +48,11 @@ export default function Topology() {
     },
     {
       key: 'gateway', title: 'INDS gateway', icon: Server,
-      caption: bridge ? bridge.name + (bridge.is_up ? ' · Up' : ' · Down') : 'Inline bridge',
+      caption: routed ? 'Routed LAN' : (bridge ? bridge.name : 'Gateway'),
       facts: [
         ['Host', gateway.data?.system.hostname || 'Unknown'],
-        ['Bridge', bridge ? bridge.name : 'Unreported'],
-        ['Bridge status', bridge ? (bridge.is_up ? 'Up' : 'Down') : 'Unknown'],
+        [routed ? 'LAN interface' : 'Bridge', gatewayLink?.name || 'Unreported'],
+        ['Link status', gatewayLink ? (gatewayLink.is_up ? 'Up' : 'Down') : 'Unknown'],
       ],
       path: '/gateway', action: 'View gateway health',
     },

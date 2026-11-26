@@ -77,3 +77,22 @@ def test_json_reader_uses_the_dedicated_set(monkeypatch):
     monkeypatch.setattr(firewall.subprocess, "run", read)
     assert firewall.blocked_macs() == {"02:00:00:00:ab:01"}
     assert read.call_args.args[0][-3:] == ["bridge", firewall.TABLE, firewall.BLOCK_SET]
+
+
+def test_routed_policy_and_timed_element_use_only_owned_forwarding_set(monkeypatch):
+    policy = firewall.render_routed_policy("eth1", "eth0")
+    assert 'iifname "eth1" oifname "eth0" ether saddr @blocked_macs' in policy
+    assert "hook forward" in policy and "flags timeout" in policy
+    mac = "02:00:00:00:00:42"
+    definition = {"set": {"name": firewall.BLOCK_SET, "type": "ether_addr",
+                          "elem": [{"elem": {"val": mac, "timeout": 60}}]}}
+    empty = {"set": {"name": firewall.BLOCK_SET, "type": "ether_addr"}}
+    outputs = [json.dumps({"nftables": [item]}) for item in (empty, definition)]
+    run = Mock(side_effect=[subprocess.CompletedProcess([], 0, output) for output in outputs])
+    applied = Mock()
+    monkeypatch.setattr(firewall.subprocess, "run", run)
+    monkeypatch.setattr(firewall, "run_policy", applied)
+    firewall.set_block(mac, True, routed=True, timeout_seconds=60)
+    applied.assert_called_once_with(
+        f"add element inet {firewall.ROUTED_TABLE} {firewall.BLOCK_SET} {{ {mac} timeout 60s }}\n", check=False,
+    )

@@ -1,20 +1,22 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from backend.api.auth import get_current_admin
 from backend.database.base import utc_now
-from backend.database.models import Administrator, MonitoringRun, ResponseAction
+from backend.database.models import Administrator, Incident, MonitoringRun, ResponseAction
 from backend.database.session import get_session
 from backend.services.monitoring import configured_interface
 from backend.services.response_execution import (
     OUTSTANDING, ResponseError, enforcement_enabled, execute_block, reserve_response_write,
     response_event, validate_block,
 )
+from backend.services.response_policy import assess_response
 
 router = APIRouter(prefix="/api/actions", tags=["actions"])
 
@@ -53,6 +55,52 @@ class ActionOut(BaseModel):
 
 class Decision(BaseModel):
     decision: Literal["approved", "rejected"]
+
+
+class Proposal(BaseModel):
+    incident_id: int = Field(gt=0)
+    reason: str = Field(min_length=1, max_length=300)
+    duration_minutes: int | None = Field(default=None, ge=1, le=60)
+
+
+@router.post("", response_model=ActionOut, status_code=201)
+def propose_action(data: Proposal, request: Request,
+                   session: Session = Depends(get_session),
+                   admin: Administrator = Depends(get_current_admin)):
+    with request.app.state.monitoring.lock:
+        session.rollback()
+        reserve_response_write(session)
+        incident = session.get(Incident, data.incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="incident not found")
+        policy = assess_response(incident)
+        if not policy["approval_required"]:
+            raise HTTPException(status_code=409, detail="Incident policy does not permit a block proposal.")
+        if not data.reason.strip():
+            raise HTTPException(status_code=422, detail="Provide a response reason.")
+        device = incident.source_device
+        duplicate = session.scalar(select(ResponseAction.id).where(
+            ResponseAction.target_mac == device.mac_address,
+            ResponseAction.action_type == "block",
+            or_(and_(ResponseAction.approval_status == "pending", or_(
+                ResponseAction.expires_at.is_(None), ResponseAction.expires_at > utc_now(),
+            )), ResponseAction.execution_status.in_(OUTSTANDING)),
+        ).limit(1))
+        if duplicate is not None:
+            raise HTTPException(status_code=409, detail="A block for this device already requires attention.")
+        duration = data.duration_minutes or (15 if policy["recommendation"] == "temporary_block" else None)
+        now = utc_now()
+        action = ResponseAction(
+            incident_id=incident.id, device_id=device.id, action_type="block",
+            target_mac=device.mac_address, target_ip=device.reported_ip, reason=data.reason.strip(),
+            requested_by_id=admin.id, request_key=uuid4().hex, created_at=now,
+            expires_at=now + timedelta(minutes=duration) if duration else None,
+        )
+        session.add(action)
+        session.flush()
+        response_event(session, action, "proposed", admin)
+        session.commit()
+        return action
 
 
 @router.get("", response_model=list[ActionOut])
@@ -99,7 +147,13 @@ def record_decision(session, admin, action_id, decision):
         raise HTTPException(status_code=409, detail="this action is already " + action.approval_status)
 
     apply = decision == "approved" and action.action_type == "block" and enforcement_enabled()
+    decided_at = utc_now()
     if decision == "approved":
+        if action.expires_at is not None and action.expires_at <= decided_at:
+            raise HTTPException(status_code=409, detail="This response proposal has expired.")
+        if action.requested_by_id is not None and action.incident is not None:
+            if not assess_response(action.incident)["approval_required"]:
+                raise HTTPException(status_code=409, detail="Incident policy no longer permits this response.")
         running = session.scalar(select(MonitoringRun).where(MonitoringRun.ended_at.is_(None)))
         if running is None:
             raise HTTPException(status_code=409, detail="turn monitoring on before approving a response")
@@ -111,7 +165,7 @@ def record_decision(session, admin, action_id, decision):
 
     action.approval_status = decision
     action.decided_by_id = admin_id
-    action.decided_at = utc_now()
+    action.decided_at = decided_at
     if apply:
         action.execution_status = "applying"
     response_event(session, action, decision, admin)

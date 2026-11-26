@@ -318,3 +318,29 @@ INSERT INTO detection_rules (rule_code, description, enabled, severity, cooldown
 INSERT INTO detection_rules (rule_code, description, enabled, severity, cooldown_seconds, settings_json, updated_at) VALUES ('PORT_SCAN', 'A device tries many different ports on the same target in a short time.', 1, 'Medium', 300, '{"distinct_ports": 20, "window_seconds": 60}', CURRENT_TIMESTAMP);
 
 UPDATE alembic_version SET version_num='0003' WHERE alembic_version.version_num = '0002';
+
+-- Running upgrade 0003 -> 0004
+
+ALTER TABLE devices ADD COLUMN ip_source VARCHAR(20);
+
+ALTER TABLE devices ADD COLUMN ip_expires_at DATETIME;
+
+ALTER TABLE devices ADD COLUMN last_active_at DATETIME;
+
+UPDATE devices SET last_active_at = last_seen_at;
+
+UPDATE alembic_version SET version_num='0004' WHERE alembic_version.version_num = '0003';
+
+-- Running upgrade 0004 -> 0005
+
+CREATE TABLE monitoring_preference (
+    id INTEGER NOT NULL,
+    enabled_by_id INTEGER,
+    CONSTRAINT pk_monitoring_preference PRIMARY KEY (id),
+    CONSTRAINT ck_monitoring_preference_singleton CHECK (id = 1),
+    CONSTRAINT fk_monitoring_preference_enabled_by_id_administrators FOREIGN KEY(enabled_by_id) REFERENCES administrators (id) ON DELETE SET NULL
+);
+
+INSERT INTO monitoring_preference (id, enabled_by_id) SELECT 1, CASE WHEN ended_at IS NULL OR stop_reason IN ('shutdown', 'interrupted') THEN started_by_id ELSE NULL END FROM monitoring_runs ORDER BY id DESC LIMIT 1;
+
+UPDATE alembic_version SET version_num='0005' WHERE alembic_version.version_num = '0004';

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.api.auth import get_current_admin
 from backend.database.base import utc_now
-from backend.database.models import Administrator, Device, Incident, MonitoringRun
+from backend.database.models import Administrator, Device, Incident, MonitoringPreference, MonitoringRun
 from backend.database.session import get_session
 from backend.services.monitoring import MonitoringError
 from backend.services.response_execution import enforcement_enabled
@@ -45,6 +45,7 @@ def system_status(request: Request, session: Session = Depends(get_session), adm
         .limit(1)
     )
     online_since = utc_now() - timedelta(minutes=ONLINE_MINUTES)
+    preference = session.get(MonitoringPreference, 1)
 
     rows = session.execute(
         select(Incident.severity, func.count(Incident.id))
@@ -60,11 +61,14 @@ def system_status(request: Request, session: Session = Depends(get_session), adm
         "monitoring": "on" if run else "off",
         "monitoring_since": run.started_at if run else None,
         "monitoring_stop_reason": stop_reason,
+        "monitoring_configured": bool(preference and preference.enabled_by_id),
+        "monitoring_recovery_error": request.app.state.monitoring.recovery_error,
+        "detection_degraded": bool(run and request.app.state.monitoring.detection_degraded),
         "firewall_enabled": enforcement_enabled(),
         "firewall_cleanup_needed": request.app.state.monitoring.firewall_cleanup_needed,
         "devices": session.scalar(select(func.count(Device.id))),
-        "online_devices": session.scalar(select(func.count(Device.id)).where(Device.last_seen_at >= online_since)),
-        "last_device_seen_at": session.scalar(select(func.max(Device.last_seen_at))),
+        "online_devices": session.scalar(select(func.count(Device.id)).where(Device.last_active_at >= online_since)),
+        "last_device_seen_at": session.scalar(select(func.max(Device.last_active_at))),
         "open_incidents": sum(count for _, count in rows),
         "open_by_severity": open_by_severity,
     }

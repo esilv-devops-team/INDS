@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 
 from backend.database.base import utc_now
@@ -107,8 +107,10 @@ def persist_summaries(session, run_id, windows, last_seen):
         ))
     for device_id, seen_at in last_seen.items():
         session.execute(
-            update(Device).where(Device.id == device_id, Device.last_seen_at < seen_at)
-            .values(last_seen_at=seen_at)
+            update(Device).where(Device.id == device_id,
+                                 or_(Device.last_active_at.is_(None), Device.last_active_at < seen_at))
+            .values(last_active_at=seen_at,
+                    last_seen_at=case((Device.last_seen_at < seen_at, seen_at), else_=Device.last_seen_at))
         )
     return True
 

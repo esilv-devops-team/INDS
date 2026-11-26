@@ -16,6 +16,51 @@ CLIENT = "02:00:00:00:00:01"
 DISCOVERED = "02:00:00:00:00:02"
 
 
+def test_restart_recovers_enabled_preference_and_respects_off(admin_api, database, controller, monkeypatch):
+    engine = database[0]
+    entered = Event()
+    monkeypatch.setattr(monitoring, "open_capture", Mock(side_effect=lambda _: Mock()))
+
+    def capture(*_):
+        entered.set()
+        controller.stop_event.wait(2)
+
+    monkeypatch.setattr(monitoring, "capture_batch", capture)
+    assert admin_api.post("/api/system/monitoring/start").status_code == 204
+    assert entered.wait(2)
+    controller.shutdown()
+    entered.clear()
+    controller.recover(engine)
+    assert entered.wait(2)
+    assert admin_api.get("/api/system/status").json()["monitoring_configured"]
+    assert admin_api.post("/api/system/monitoring/stop").status_code == 204
+    controller.recover(engine)
+    assert not admin_api.get("/api/system/status").json()["monitoring_configured"]
+    assert monitoring.open_capture.call_count == 2
+    with Session(engine) as session:
+        events = session.scalars(select(AuditEvent).where(AuditEvent.event_type == "monitoring.start")
+                                 .order_by(AuditEvent.id)).all()
+        assert events[-1].actor_type == "system"
+        assert events[-1].details_json == {"recovered": True}
+
+
+def test_recovery_failure_keeps_configured_intent_and_surfaces_error(admin_api, database, controller, monkeypatch):
+    from backend.database.models import MonitoringPreference
+
+    engine = database[0]
+    admin_id = admin_api.get("/api/auth/me").json()["id"]
+    with Session(engine) as session, session.begin():
+        session.add(MonitoringPreference(id=1, enabled_by_id=admin_id))
+    monkeypatch.setattr(monitoring, "open_capture", Mock(side_effect=OSError("capture unavailable")))
+    controller.recover(engine)
+    status = admin_api.get("/api/system/status").json()
+    assert status["monitoring"] == "off" and status["monitoring_configured"]
+    assert "Unable to open traffic capture" in status["monitoring_recovery_error"]
+    with Session(engine) as session:
+        failure = session.scalar(select(AuditEvent).where(AuditEvent.event_type == "monitoring.recovery_failed"))
+        assert failure.outcome == "failure" and failure.actor_type == "system"
+
+
 @pytest.fixture
 def controller(monkeypatch):
     service = monitoring.MonitoringController()
@@ -102,6 +147,44 @@ def test_capture_open_and_worker_failures(admin_api, database, controller, monke
     with Session(engine) as session:
         assert session.scalar(select(MonitoringRun)).stop_reason == "failure"
     capture_socket.close.assert_called_once()
+
+
+def test_routed_capture_counts_new_client_in_first_batch(admin_api, database, controller, monkeypatch, tmp_path):
+    from gateway import discovery
+
+    monkeypatch.setenv("INDS_MONITOR_INTERFACE", "eth1")
+    leases = tmp_path / "dnsmasq.leases"
+    leases.write_text(f"0 {CLIENT} 192.168.50.101 phone *\n")
+    monkeypatch.setenv("INDS_DHCP_LEASE_FILE", str(leases))
+    monkeypatch.setattr(discovery, "read_neighbors", lambda _: [])
+    monkeypatch.setattr(discovery, "macs_on_port", Mock(side_effect=AssertionError("bridge queried")))
+    monkeypatch.setattr(monitoring, "open_capture", Mock(return_value=Mock()))
+    captured = Event()
+
+    def capture(_interface, _socket, receive, _discoveries):
+        if captured.is_set():
+            assert controller.stop_event.wait(5)
+            return
+        receive(SimpleNamespace(source_mac=CLIENT, destination_mac=DISCOVERED,
+                                timestamp=time(), captured_bytes=120))
+        captured.set()
+
+    second_batch = Event()
+
+    def observed_capture(*args):
+        if captured.is_set():
+            second_batch.set()
+        capture(*args)
+
+    monkeypatch.setattr(monitoring, "capture_batch", observed_capture)
+    assert admin_api.post("/api/system/monitoring/start").status_code == 204
+    assert second_batch.wait(5)
+    assert admin_api.post("/api/system/monitoring/stop").status_code == 204
+    device, = admin_api.get("/api/devices").json()
+    assert device["ip_source"] == "dhcp_lease"
+    assert device["last_active_at"] is not None
+    with Session(database[0]) as session:
+        assert session.scalar(select(TrafficSummary)).bytes_sent == 120
 
 
 def test_startup_reconciles_interrupted_run(api, database, controller, monkeypatch):

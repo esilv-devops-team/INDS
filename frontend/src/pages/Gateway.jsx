@@ -12,6 +12,7 @@ function temperatureNote(temperature) {
 
 export default function Gateway() {
   const { data: health, error, updatedAt } = usePolling('/api/gateway/health', 5)
+  const rules = usePolling('/api/detection/rules', 30)
 
   if (error && !health) return <p className="error">Could not load the gateway health: {error}</p>
   if (!health) return <p className="muted">Loading...</p>
@@ -30,6 +31,24 @@ export default function Gateway() {
           {error ? 'Connection problem, retrying...' : 'Updated ' + updatedAt.toLocaleTimeString('en-GB')}
         </span>
       </div>
+
+      <section className="panel">
+        <h2>Detection rules</h2>
+        {rules.error && <p className="error">{rules.error}</p>}
+        {!rules.data && !rules.error && <p className="muted">Loading rules…</p>}
+        <ul className="services">
+          {rules.data?.map((rule) => (
+            <li key={rule.rule_code}>
+              <div>
+                <b>{rule.rule_code}</b>
+                <div className="muted">{rule.description}</div>
+                <div className="muted">{rule.severity} · {rule.cooldown_seconds}s cooldown</div>
+              </div>
+              <span>{rule.enabled ? 'Enabled' : 'Disabled'}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <div className="stats">
         <div className="stat-card">
@@ -94,7 +113,7 @@ export default function Gateway() {
                 {interfaces.map((item) => (
                   <tr key={item.name}>
                     <td className="mono">
-                      {item.name} {item.is_bridge && <span className="tag">bridge</span>}
+                      {item.name} {(item.role || item.is_bridge) && <span className="tag">{item.role || 'bridge'}</span>}
                     </td>
                     <td>
                       <span className={item.is_up ? 'status online' : 'status'}>
