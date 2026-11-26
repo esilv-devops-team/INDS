@@ -12,6 +12,7 @@ import Topology from './pages/Topology'
 
 const DeviceDetail = lazy(() => import('./pages/DeviceDetail'))
 const Statistics = lazy(() => import('./pages/Statistics'))
+const LiveNetwork = lazy(() => import('./pages/LiveNetwork'))
 
 export default function App() {
   const { admin, checking } = useAuth()
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/statistics" element={<Statistics />} />
         <Route path="/gateway" element={<Gateway />} />
         <Route path="/topology" element={<Topology />} />
+        <Route path="/live" element={<LiveNetwork />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
