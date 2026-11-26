@@ -61,3 +61,65 @@
   color: var(--muted);
   font-style: italic;
 }
+.ai-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.ai-box p {
+  margin: 0 0 6px;
+}
+
+.ai-box h4 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ai-box ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ai-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ai-status {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.ai-status.pending,
+.ai-status.running {
+  color: var(--medium);
+}
+
+.ai-status.succeeded {
+  color: var(--accent);
+}
+
+.ai-status.failed {
+  color: var(--critical);
+}
+
+.ai-summary {
+  font-weight: 600;
+}
+
+.ai-proposal {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--panel-light);
+}
