@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from backend.database.base import utc_now
 from backend.database.models import AIAnalysis, Device, Incident, MonitoringRun
+from backend.services.ai_context import build_context
 from backend.services.audit import record_event
 from backend.services.severity import classify_severity
 
@@ -108,23 +109,6 @@ def record_findings(session, run_id, findings):
     return [record_finding(session, run_id, finding) for finding in findings]
 
 
-def incident_summary(incident):
-    evidence = {
-        key: value for key, value in incident.evidence_json.items()
-        if not key.endswith(("_ip", "_mac"))
-    }
-    return {
-        "incident_id": incident.id,
-        "rule": incident.rule_code,
-        "severity": incident.severity,
-        "risk_score": incident.risk_score,
-        "source_device": f"device-{incident.source_device_id}" if incident.source_device_id else "unknown device",
-        "first_seen_at": incident.first_seen_at.isoformat(),
-        "last_seen_at": incident.last_seen_at.isoformat(),
-        "evidence": evidence,
-    }
-
-
 def attach_ai_assessment(session, incident, model, assessment, prompt_version="v1"):
     if not isinstance(assessment, dict) or not isinstance(assessment.get("summary"), str) or not assessment["summary"].strip():
         raise ValueError("An AI assessment must be an object with a non-empty summary.")
@@ -137,7 +121,7 @@ def attach_ai_assessment(session, incident, model, assessment, prompt_version="v
         model=model.strip(),
         prompt_version=prompt_version,
         status="succeeded",
-        input_summary_json=incident_summary(incident),
+        input_summary_json=build_context(session, incident),
         assessment_json=assessment,
         requested_at=now,
         started_at=now,
