@@ -32,7 +32,9 @@ client and AP MACs before any enforcement. Host rules inspection through
 - Set `INDS_DATABASE_URL=sqlite:////var/lib/inds/inds.sqlite3`,
   `INDS_MONITOR_INTERFACE=eth1`, and `INDS_FIREWALL_ENABLED=0`. Set the
   confirmed `INDS_MONITOR_AP_MAC`, `INDS_PROTECTED_MACS`, and lease-file override
-  if needed. Generate a stable secret directly into a restricted environment file.
+  if needed. Set `INDS_DEEPSEEK_API_KEY` for the AI analysis (optional
+  `INDS_DEEPSEEK_MODEL`, default `deepseek-flash`). Generate a stable secret
+  directly into a restricted environment file.
   Enable secure cookies when HTTPS is in use. Keep initial admin setup reachable
   only over the management path.
 - Review [the systemd unit](../../deploy/inds.service) running one Uvicorn process as `inds` on
@@ -136,7 +138,10 @@ sudo systemctl enable --now inds
 Run the package and account commands only if the reviewed preflight shows they
 are needed. The environment file sets the database URL above,
 `INDS_MONITOR_INTERFACE=eth1`, `INDS_FIREWALL_ENABLED=0`,
-`INDS_COOKIE_SECURE=1`, and a stable private `INDS_SECRET_KEY`.
+`INDS_COOKIE_SECURE=1`, a stable private `INDS_SECRET_KEY`, and
+`INDS_DEEPSEEK_API_KEY`. Without the DeepSeek key INDS keeps detecting and
+every AI analysis ends as failed. The AI acceptance test is in
+[INDS-85](../INDS-85.md).
 Use a private editor or a secret manager for the signing key. If the service
 account cannot read the lease file, request separate approval for the minimum
 necessary read access or an approved read-only lease feed. Keep the firewall
