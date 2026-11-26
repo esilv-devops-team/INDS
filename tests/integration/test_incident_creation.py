@@ -13,7 +13,7 @@ from backend.database.base import utc_now
 from backend.database.models import AIAnalysis, Administrator, AuditEvent, Device, Incident, MonitoringRun
 from backend.services import monitoring
 from backend.services.detection_rules import update_rule
-from backend.services.incident_creation import attach_ai_assessment, record_findings
+from backend.services.incident_creation import record_findings
 from detection.base import Finding
 from gateway.traffic import read_metadata
 
@@ -188,34 +188,18 @@ def test_no_incident_after_monitoring_stopped(database):
     assert record(engine, 999, [port_scan(device_id)]) == []
 
 
-def test_attach_ai_assessment(admin_api, database):
+def test_new_incident_queues_one_analysis(admin_api, database):
     engine, _, _ = database
     run_id, device_id = prepare(engine)
     (incident_id, _), = record(engine, run_id, [port_scan(device_id)])
-
-    with Session(engine) as session, session.begin():
-        incident = session.get(Incident, incident_id)
-        attach_ai_assessment(session, incident, " llama3 ", {"summary": "A guest scans the camera.", "recommended_action": "block"})
+    record(engine, run_id, [port_scan(device_id, minutes=1), port_scan(device_id, minutes=2)])
 
     detail = admin_api.get(f"/api/incidents/{incident_id}").json()
     analysis, = detail["analyses"]
-    assert (analysis["model"], analysis["status"]) == ("llama3", "succeeded")
-    assert analysis["assessment"]["summary"] == "A guest scans the camera."
+    assert (analysis["model"], analysis["status"], analysis["assessment"]) == ("deepseek-flash", "pending", None)
 
     with Session(engine) as session:
-        sent = session.scalar(select(AIAnalysis)).input_summary_json
-        assert sent["source_device"] == f"device-{device_id}"
-        assert sent["evidence"] == {"protocol": "TCP", "sample_ports": "21,22,23", "distinct_ports": 20,
-                                    "rule_severity": "Medium", "occurrences": 1}
-        assert "192.168.50.66" not in str(sent)
-
-    with Session(engine) as session:
-        incident = session.get(Incident, incident_id)
-        for assessment in ({}, {"summary": "  "}, "block it"):
-            with pytest.raises(ValueError):
-                attach_ai_assessment(session, incident, "llama3", assessment)
-        with pytest.raises(ValueError):
-            attach_ai_assessment(session, incident, " ", {"summary": "ok"})
+        assert session.scalar(select(AIAnalysis)).input_summary_json == {}
 
 
 @pytest.fixture

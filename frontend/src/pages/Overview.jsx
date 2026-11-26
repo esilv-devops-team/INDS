@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router'
 import MonitoringPanel from '../components/MonitoringPanel'
 import SeverityBadge from '../components/SeverityBadge'
 import StatCard from '../components/StatCard'
-import { formatTime, timeAgo } from '../format'
+import { formatTime, readable, timeAgo } from '../format'
 import { usePolling } from '../usePolling'
 
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Low']
@@ -76,7 +76,7 @@ export default function Overview() {
                 {incidents.map((incident) => (
                   <tr key={incident.id} className="clickable" onClick={() => navigate('/incidents/' + incident.id)}>
                     <td>{formatTime(incident.created_at)}</td>
-                    <td>{incident.rule_code}</td>
+                    <td>{readable(incident.rule_code)}</td>
                     <td className="mono">{incident.source_ip}</td>
                     <td className="mono">{incident.target_ip}</td>
                     <td><SeverityBadge severity={incident.severity} /></td>

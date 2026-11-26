@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 
 from backend.database.base import utc_now
 from backend.database.models import Device, Incident, MonitoringRun, ResponseAction
-from backend.services.incident_creation import attach_ai_assessment, record_findings
+from backend.services import deepseek
+from backend.services.ai_analysis import process_next
+from backend.services.incident_creation import record_findings
 from detection.base import Finding
 
 NOW = utc_now().replace(microsecond=0)
@@ -49,12 +51,13 @@ def test_history_requires_login(api):
     assert api.get("/api/incidents/counts").status_code == 401
 
 
-def test_history_tells_the_whole_story(admin_api, database):
+def test_history_tells_the_whole_story(admin_api, database, monkeypatch):
     engine, _, _ = database
     incident_id, device_id = detect_scan(admin_api, engine, repeats=5)
 
+    monkeypatch.setattr(deepseek, "ask_deepseek", lambda context: {"summary": "A guest scans the camera.", "risk_level": "High"})
+    assert process_next(engine)
     with Session(engine) as session, session.begin():
-        attach_ai_assessment(session, session.get(Incident, incident_id), "llama3", {"summary": "A guest scans the camera."})
         session.add(ResponseAction(
             incident_id=incident_id, device_id=device_id, request_key="history-block", action_type="block",
             target_mac="02:00:00:00:00:66", reason="Port scan against the camera",

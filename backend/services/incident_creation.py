@@ -2,8 +2,8 @@ from datetime import UTC, timedelta
 
 from sqlalchemy import select
 
-from backend.database.base import utc_now
-from backend.database.models import AIAnalysis, Device, Incident, MonitoringRun
+from backend.database.models import Device, Incident, MonitoringRun
+from backend.services.ai_analysis import queue_analysis
 from backend.services.audit import record_event
 from backend.services.severity import classify_severity
 
@@ -109,6 +109,7 @@ def record_finding(session, run_id, finding):
     )
     session.add(incident)
     session.flush()
+    queue_analysis(session, incident)
     record_event(
         session, "incident.created", incident_id=incident.id, device_id=incident.source_device_id,
         monitoring_run_id=run_id,
@@ -122,47 +123,3 @@ def record_findings(session, run_id, findings):
     if run is None or run.ended_at is not None:
         return []
     return [record_finding(session, run_id, finding) for finding in findings]
-
-
-def incident_summary(incident):
-    evidence = {
-        key: value for key, value in incident.evidence_json.items()
-        if key != "latest_finding" and not key.endswith(("_ip", "_mac"))
-    }
-    return {
-        "incident_id": incident.id,
-        "rule": incident.rule_code,
-        "severity": incident.severity,
-        "risk_score": incident.risk_score,
-        "source_device": f"device-{incident.source_device_id}" if incident.source_device_id else "unknown device",
-        "first_seen_at": incident.first_seen_at.isoformat(),
-        "last_seen_at": incident.last_seen_at.isoformat(),
-        "evidence": evidence,
-    }
-
-
-def attach_ai_assessment(session, incident, model, assessment, prompt_version="v1"):
-    if not isinstance(assessment, dict) or not isinstance(assessment.get("summary"), str) or not assessment["summary"].strip():
-        raise ValueError("An AI assessment must be an object with a non-empty summary.")
-    if not model or not model.strip():
-        raise ValueError("The AI model name is required.")
-
-    now = utc_now()
-    analysis = AIAnalysis(
-        incident_id=incident.id,
-        model=model.strip(),
-        prompt_version=prompt_version,
-        status="succeeded",
-        input_summary_json=incident_summary(incident),
-        assessment_json=assessment,
-        requested_at=now,
-        started_at=now,
-        completed_at=now,
-    )
-    session.add(analysis)
-    session.flush()
-    record_event(
-        session, "ai_analysis.attached", incident_id=incident.id, ai_analysis_id=analysis.id,
-        details={"model": analysis.model},
-    )
-    return analysis

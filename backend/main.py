@@ -16,6 +16,7 @@ from backend.api.statistics import router as statistics_router
 from backend.api.system import router as system_router
 from backend.database.config import get_database_url
 from backend.database.session import get_engine
+from backend.services.ai_analysis import AnalysisWorker
 from backend.services.monitoring import MonitoringController
 
 
@@ -27,11 +28,13 @@ async def lifespan(app):
             engine = get_engine()
             if inspect(engine).has_table("monitoring_runs"):
                 app.state.monitoring.recover(engine, preferences_available=inspect(engine).has_table("monitoring_preference"))
+                app.state.analysis.start(engine)
 
     await run_in_threadpool(reconcile)
     try:
         yield
     finally:
+        await run_in_threadpool(app.state.analysis.stop)
         await run_in_threadpool(app.state.monitoring.shutdown)
 
 app = FastAPI(
@@ -41,6 +44,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.state.monitoring = MonitoringController()
+app.state.analysis = AnalysisWorker()
 
 add_error_handlers(app)
 
