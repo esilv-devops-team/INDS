@@ -28,7 +28,7 @@ def test_status_with_data(admin_api, database):
 
     with Session(engine) as session:
         session.add(MonitoringRun(started_by_id=admin_id))
-        session.add(Device(mac_address="00:11:22:33:44:55", first_seen_at=now, last_seen_at=now))
+        session.add(Device(mac_address="00:11:22:33:44:55", first_seen_at=now, last_seen_at=now, last_active_at=now))
         session.add(Device(
             mac_address="00:11:22:33:44:66",
             first_seen_at=now - timedelta(hours=2),

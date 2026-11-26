@@ -59,6 +59,12 @@ export default function MonitoringPanel() {
             </p>
           )}
           {error && <p className="error small">{error}</p>}
+          {status.monitoring_recovery_error && (
+            <p className="error small" role="status">Startup recovery failed. {status.monitoring_recovery_error}</p>
+          )}
+          {status.detection_degraded && (
+            <p className="error small" role="status">Detection processing is degraded. Capture is still running.</p>
+          )}
           {status.firewall_cleanup_needed && (
             <p className="error small" role="status">Firewall cleanup is unconfirmed. Some devices may still be blocked.</p>
           )}

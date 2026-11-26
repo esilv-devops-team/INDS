@@ -33,7 +33,7 @@ export default function Devices() {
   if (!devices) return <p className="muted">Loading...</p>
 
   const referenceTime = updatedAt.getTime()
-  const recentlySeen = (device) => wasRecentlySeen(device.last_seen_at, referenceTime)
+  const recentlySeen = (device) => device.last_active_at && wasRecentlySeen(device.last_active_at, referenceTime)
   const recent = devices.filter(recentlySeen)
   const atRisk = devices.filter((device) => device.open_incidents > 0)
   const trusted = devices.filter((device) => device.is_trusted)

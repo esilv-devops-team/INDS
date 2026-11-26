@@ -10,6 +10,9 @@ import SeverityBadge from './SeverityBadge'
 import './IncidentDetail.css'
 
 const RESPONSE_EVENTS = {
+  proposed: 'Response proposed',
+  expiry_due: 'Temporary block expired',
+  proposal_expired: 'Response proposal expired',
   approved: 'Response approved',
   rejected: 'Response rejected',
   applied: 'Block applied on the gateway',
@@ -33,6 +36,7 @@ function describe(event) {
   if (event.event_type === 'incident.created') {
     return 'Detected as ' + details.severity + ' (score ' + details.risk_score + ')'
   }
+  if (event.event_type === 'incident.finding_correlated') return 'Related finding recorded'
   if (event.event_type === 'incident.escalated') {
     return 'Severity changed from ' + details.from + ' to ' + details.to + ' (score ' + details.risk_score + ')'
   }
@@ -91,6 +95,12 @@ function History({ events, error }) {
         <li key={event.id} className={event.outcome === 'failure' ? 'failed' : undefined}>
           <div className="history-meta">{formatTime(event.occurred_at)} · {event.actor || 'INDS'}</div>
           <div>{describe(event)}</div>
+          {event.event_type === 'incident.finding_correlated' && (
+            <details>
+              <summary>Evidence from {formatTime(event.details.observed_at)}</summary>
+              <Details values={event.details.evidence} />
+            </details>
+          )}
           {event.details.note && <q>{event.details.note}</q>}
         </li>
       ))}
@@ -105,6 +115,8 @@ export default function IncidentDetail({ id, onChange, onClose }) {
   const [actionError, setActionError] = useState('')
   const [confirming, setConfirming] = useState(null)
   const [note, setNote] = useState('')
+  const [proposalReason, setProposalReason] = useState('')
+  const [duration, setDuration] = useState('')
 
   async function send(path, method, body) {
     setBusy(true)
@@ -203,12 +215,61 @@ export default function IncidentDetail({ id, onChange, onClose }) {
       </dl>
 
       <h3>Evidence</h3>
-      <Details values={incident.evidence} />
+      <Details values={Object.fromEntries(Object.entries(incident.evidence).filter(([key]) => key !== 'latest_finding'))} />
+      {incident.evidence.latest_finding && (
+        <>
+          <h3>Latest related finding</h3>
+          <Details values={incident.evidence.latest_finding} />
+        </>
+      )}
+      {incident.related_incidents?.length > 0 && (
+        <>
+          <h3>Related incidents</h3>
+          <ul>
+            {incident.related_incidents.map((item) => (
+              <li key={item.id}>
+                #{item.id} · {item.rule_code} · {readable(item.relationship)} · {readable(item.status)}
+                {item.responses?.map((action) => (
+                  <span key={action.id}> · {actionName(action)} <ResponseStatus action={action} /></span>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       <h3>AI assessment</h3>
       <Assessment analysis={incident.analyses[0]} />
 
       <h3>Proposed responses</h3>
+      {incident.policy && (
+        <>
+          <Details values={{
+            risk: incident.policy.risk,
+            confidence: readable(incident.policy.confidence),
+            recommendation: readable(incident.policy.recommendation),
+            reasons: incident.policy.reasons,
+          }} />
+          {incident.policy.approval_required && (
+            <form onSubmit={async (event) => {
+              event.preventDefault()
+              const proposed = await send('/api/actions', 'POST', {
+                incident_id: incident.id,
+                reason: proposalReason,
+                duration_minutes: duration ? Number(duration) : null,
+              })
+              if (proposed) setProposalReason('')
+            }}>
+              <label>Reason <input value={proposalReason} onChange={(event) => setProposalReason(event.target.value)}
+                required maxLength={300} /></label>
+              <label>Minutes <input type="number" min="1" max="60" value={duration}
+                placeholder={incident.policy.recommendation === 'temporary_block' ? '15' : 'Optional'}
+                onChange={(event) => setDuration(event.target.value)} /></label>
+              <button className="button small" disabled={busy}>Propose block</button>
+            </form>
+          )}
+        </>
+      )}
       {incident.actions.length === 0 && <p className="muted">No response proposed for this incident.</p>}
       {incident.actions.map((action) => (
         <div className="action" key={action.id}>

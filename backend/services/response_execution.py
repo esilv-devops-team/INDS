@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 from backend.database.base import utc_now
 from backend.database.models import Device, ResponseAction
 from backend.services.audit import record_event
+from backend.services.response_policy import protected_macs
 from backend.services.vendor_lookup import normalize_mac
-from gateway import firewall
+from gateway import firewall, firewall_client
 
 logger = logging.getLogger(__name__)
 GATEWAY_ERRORS = (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError)
@@ -33,10 +34,18 @@ def reserve_response_write(session):
     session.connection().exec_driver_sql("UPDATE response_actions SET id = id WHERE 0")
 
 
-def validate_block(session, action, guest_port):
-    from gateway.discovery import macs_on_port
+def routed_interface(interface=None):
+    from backend.services.monitoring import configured_interface, routed_lan
 
-    if action.expires_at is not None:
+    interface = interface or configured_interface()
+    return routed_lan(interface) if interface else None
+
+
+def validate_block(session, action, guest_port):
+    from gateway.discovery import lan_client_ip, macs_on_port, read_neighbors
+
+    lan = routed_interface(guest_port)
+    if action.expires_at is not None and not lan:
         raise ResponseError(409, "Timed blocks require a gateway expiry policy.")
     device = session.get(Device, action.device_id) if action.device_id is not None else None
     if device is None or device.mac_address != action.target_mac or device.is_trusted:
@@ -45,12 +54,21 @@ def validate_block(session, action, guest_port):
         ap_mac = normalize_mac(os.environ.get("INDS_MONITOR_AP_MAC", ""))
         if ap_mac == "00:00:00:00:00:00" or int(ap_mac[:2], 16) & 1 or not guest_port:
             raise ValueError("Missing valid guest network configuration.")
-        guests = macs_on_port(guest_port)
+        protected = protected_macs()
+        if lan:
+            if not os.environ.get("INDS_PROTECTED_MACS", "").strip():
+                raise ValueError("Configure protected management and infrastructure MAC addresses.")
+            address = lan_client_ip(action.target_ip, lan)
+            if not address or device.reported_ip != address or device.ip_source not in ("dhcp_lease", "neighbor"):
+                raise ResponseError(409, "The target no longer has its confirmed LAN address.")
+            guests = {normalize_mac(item["mac"]) for item in read_neighbors(guest_port) if item["ip"] == address}
+        else:
+            guests = macs_on_port(guest_port)
     except GATEWAY_ERRORS as error:
         logger.exception("Unable to verify the intended block target")
-        raise ResponseError(503, "Unable to verify the target on the guest bridge port.") from error
-    if action.target_mac == ap_mac or action.target_mac not in guests:
-        raise ResponseError(409, "The target is protected or was not learned on the guest bridge port.")
+        raise ResponseError(503, "Unable to verify the target on the monitored LAN.") from error
+    if action.target_mac in protected or action.target_mac == ap_mac or action.target_mac not in guests:
+        raise ResponseError(409, "The target is protected or could not be verified on the monitored LAN.")
     existing = session.scalar(select(ResponseAction.id).where(
         ResponseAction.id != action.id,
         ResponseAction.target_mac == action.target_mac,
@@ -82,9 +100,14 @@ def mark_cleared(session, action, admin=None):
 def execute_block(session, action, admin, *, blocked):
     event = "apply" if blocked else "reverse"
     mac, action_id = action.target_mac, action.id
+    expires_at = action.expires_at
     session.rollback()
     try:
-        firewall.set_block(mac, blocked)
+        if routed_interface():
+            timeout = int((expires_at - utc_now()).total_seconds()) if blocked and expires_at else None
+            firewall_client.set_block(mac, blocked, timeout_seconds=timeout)
+        else:
+            firewall.set_block(mac, blocked)
     except GATEWAY_ERRORS:
         logger.exception("Gateway failed to confirm response action %s", action_id)
         confirmed = False
@@ -92,7 +115,8 @@ def execute_block(session, action, admin, *, blocked):
         confirmed = True
 
     reserve_response_write(session)
-    session.refresh(admin)
+    if admin is not None:
+        session.refresh(admin)
     session.refresh(action)
     if not confirmed:
         action.execution_status = "unknown"
@@ -100,19 +124,53 @@ def execute_block(session, action, admin, *, blocked):
         response_event(session, action, event + "_unconfirmed", admin, outcome="failure")
     elif blocked:
         action.execution_status = "active"
-        action.applied_at = max(utc_now(), action.decided_at)
+        confirmed_at = utc_now()
+        if action.expires_at and confirmed_at >= action.expires_at:
+            confirmed_at = action.decided_at
+        action.applied_at = max(confirmed_at, action.decided_at)
         action.error_message = None
         response_event(session, action, "applied", admin)
     else:
         mark_cleared(session, action, admin)
     session.commit()
+    if confirmed and blocked and action.expires_at and utc_now() >= action.expires_at:
+        execute_block(session, action, admin, blocked=False)
+
+
+def expire_blocks(engine):
+    """Remove expired blocks through the existing audited reversal path."""
+    with Session(engine) as session:
+        now = utc_now()
+        reserve_response_write(session)
+        pending = session.scalars(select(ResponseAction).where(
+            ResponseAction.approval_status == "pending", ResponseAction.expires_at <= now,
+        )).all()
+        for action in pending:
+            action.approval_status = "cancelled"
+            action.decided_at = now
+            response_event(session, action, "proposal_expired")
+        session.commit()
+        if not enforcement_enabled():
+            return
+        expired = session.scalars(select(ResponseAction).where(
+            ResponseAction.action_type == "block",
+            ResponseAction.execution_status.in_(OUTSTANDING),
+            ResponseAction.expires_at <= now,
+        )).all()
+        for action in expired:
+            response_event(session, action, "expiry_due")
+            session.commit()
+            execute_block(session, action, None, blocked=False)
 
 
 def reconcile_blocks(engine, admin=None):
     if not enforcement_enabled():
         return
     try:
-        firewall.clear_blocks()
+        if routed_interface():
+            firewall_client.clear_blocks()
+        else:
+            firewall.clear_blocks()
     except GATEWAY_ERRORS:
         logger.exception("Unable to reconcile the INDS block set")
         error = True

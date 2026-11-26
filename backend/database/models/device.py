@@ -26,6 +26,9 @@ class Device(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     mac_address: Mapped[str] = mapped_column(String(17), unique=True)
     current_ip: Mapped[str | None] = mapped_column(String(45))
+    ip_source: Mapped[str | None] = mapped_column(String(20))
+    ip_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime)
     hostname: Mapped[str | None] = mapped_column(String(255))
     vendor: Mapped[str | None] = mapped_column(String(255))
     is_trusted: Mapped[bool] = mapped_column(
@@ -48,3 +51,8 @@ class Device(Base):
         if self._open_incident_count is not None:
             return self._open_incident_count
         return sum(1 for incident in self.incidents if incident.status != "resolved")
+
+    @property
+    def reported_ip(self):
+        if self.ip_expires_at is None or self.ip_expires_at > utc_now():
+            return self.current_ip

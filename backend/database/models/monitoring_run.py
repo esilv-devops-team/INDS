@@ -36,3 +36,13 @@ class MonitoringRun(Base):
 
     started_by = relationship("Administrator", foreign_keys=[started_by_id])
     stopped_by = relationship("Administrator", foreign_keys=[stopped_by_id])
+
+
+class MonitoringPreference(Base):
+    """A single row records the last successful operator configuration."""
+
+    __tablename__ = "monitoring_preference"
+    __table_args__ = (CheckConstraint("id = 1", name="singleton"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    enabled_by_id: Mapped[int | None] = mapped_column(ForeignKey("administrators.id", ondelete="SET NULL"))

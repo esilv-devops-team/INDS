@@ -13,6 +13,7 @@ from backend.database.base import utc_now
 from backend.database.models import AIAnalysis, Administrator, AuditEvent, Incident, ResponseAction
 from backend.database.session import get_session
 from backend.services.audit import record_event
+from backend.services.response_policy import assess_response
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
@@ -51,11 +52,18 @@ class AnalysisOut(BaseModel):
     completed_at: datetime | None
 
 
+class RelatedIncident(IncidentOut):
+    relationship: str
+    responses: list[ActionOut]
+
+
 class IncidentDetail(IncidentOut):
     evidence: dict = Field(validation_alias="evidence_json")
     source_device: DeviceOut | None
     analyses: list[AnalysisOut] = []
     actions: list[ActionOut] = []
+    related_incidents: list[RelatedIncident] = []
+    policy: dict = Field(default_factory=dict)
 
 
 class StatusUpdate(BaseModel):
@@ -88,6 +96,7 @@ def find_incident(session, incident_id):
 
 def build_detail(session, incident):
     detail = IncidentDetail.model_validate(incident)
+    detail.policy = assess_response(incident)
     analyses = session.scalars(
         select(AIAnalysis).where(AIAnalysis.incident_id == incident.id).order_by(AIAnalysis.requested_at.desc())
     ).all()
@@ -96,6 +105,30 @@ def build_detail(session, incident):
     ).all()
     detail.analyses = [AnalysisOut.model_validate(analysis) for analysis in analyses]
     detail.actions = [ActionOut.model_validate(action) for action in actions]
+    identity = Incident.source_device_id == incident.source_device_id
+    observed_mac = incident.evidence_json.get("observed_source_mac")
+    if incident.source_device_id is None and observed_mac:
+        identity = Incident.source_device_id.is_(None) & (
+            Incident.evidence_json["observed_source_mac"].as_string() == observed_mac
+        ) & (Incident.rule_code == incident.rule_code)
+    if incident.source_device_id is not None or observed_mac:
+        related = session.scalars(
+            select(Incident).where(
+                Incident.id != incident.id,
+                identity,
+            ).order_by(Incident.last_seen_at.desc(), Incident.id.desc()).limit(10)
+        ).all()
+        responses = session.scalars(select(ResponseAction).where(
+            ResponseAction.incident_id.in_([item.id for item in related])
+        ).order_by(ResponseAction.created_at.desc()).limit(30)).all() if related else []
+        detail.related_incidents = [
+            RelatedIncident(
+                **IncidentOut.model_validate(item).model_dump(),
+                relationship=("same_rule_and_target" if item.rule_code == incident.rule_code
+                              and item.target_ip == incident.target_ip else "same_observed_identity"),
+                responses=[ActionOut.model_validate(action) for action in responses if action.incident_id == item.id],
+            ) for item in related
+        ]
     return detail
 
 

@@ -17,7 +17,7 @@ from backend.api.system import router as system_router
 from backend.database.config import get_database_url
 from backend.database.session import get_engine
 from backend.services.ai_analysis import AnalysisWorker
-from backend.services.monitoring import MonitoringController, MonitoringError, close_run
+from backend.services.monitoring import MonitoringController
 
 
 @asynccontextmanager
@@ -27,13 +27,8 @@ async def lifespan(app):
         if path.is_file():
             engine = get_engine()
             if inspect(engine).has_table("monitoring_runs"):
-                close_run(engine, "interrupted")
+                app.state.monitoring.recover(engine, preferences_available=inspect(engine).has_table("monitoring_preference"))
                 app.state.analysis.start(engine)
-                try:
-                    app.state.monitoring.cleanup_firewall(engine)
-                except MonitoringError:
-                    # Keep the dashboard available so administrators can inspect and retry cleanup.
-                    pass
 
     await run_in_threadpool(reconcile)
     try:

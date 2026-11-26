@@ -1,5 +1,9 @@
 import argparse
+import json
 import subprocess
+from datetime import UTC, datetime
+from ipaddress import IPv4Address
+from pathlib import Path
 
 import requests
 from scapy.all import ARP, BOOTP, DHCP, sniff
@@ -16,7 +20,7 @@ def is_real_mac(mac):
     return first_byte % 2 == 0
 
 
-def read_packet(packet):
+def read_packet(packet, *, provenance=False):
     if packet.haslayer(DHCP) and packet[BOOTP].op == 1:
         mac = str2mac(packet[BOOTP].chaddr[:6]).upper()
         ip = None
@@ -39,7 +43,10 @@ def read_packet(packet):
 
     if not is_real_mac(mac):
         return None
-    return {"mac": mac, "ip": ip, "hostname": hostname}
+    result = {"mac": mac, "ip": ip, "hostname": hostname}
+    if provenance:
+        result["source"] = "arp" if packet.haslayer(ARP) else "dhcp_request"
+    return result
 
 
 def add_device(devices, info):
@@ -51,6 +58,43 @@ def add_device(devices, info):
         "ip": info["ip"] or old.get("ip"),
         "hostname": info["hostname"] or old.get("hostname"),
     }
+    if "source" in info:
+        address_evidence = old if old.get("source") == "arp" and info["source"] != "arp" else info
+        devices[info["mac"]].update(source=address_evidence["source"], ip=address_evidence["ip"])
+
+
+def read_leases(path, now):
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        expires, mac, ip, hostname = fields[:4]
+        try:
+            expiration = datetime.fromtimestamp(int(expires), UTC).replace(tzinfo=None) if expires != "0" else None
+        except (ValueError, OSError, OverflowError):
+            continue
+        if expiration is None or expiration > now:
+            yield dict(mac=mac, ip=ip, hostname=None if hostname == "*" else hostname,
+                       source="dhcp_lease", expires_at=expiration)
+
+
+def read_neighbors(interface):
+    result = subprocess.run(["ip", "-j", "-4", "neigh", "show", "dev", interface],
+                            capture_output=True, text=True, timeout=1, check=True)
+    for entry in json.loads(result.stdout):
+        if entry.get("lladdr") and "REACHABLE" in entry.get("state", []):
+            yield dict(mac=entry["lladdr"], ip=entry.get("dst"), hostname=None, source="neighbor")
+
+
+def lan_client_ip(address, lan):
+    if not address:
+        return None
+    try:
+        ip = IPv4Address(address)
+    except ValueError:
+        return None
+    if ip in lan.network and ip not in (lan.ip, lan.network.network_address, lan.network.broadcast_address):
+        return str(ip)
 
 
 def read_fdb(output):

@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, IPvAnyAddress, field_validator
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator
 from sqlalchemy.orm import Session
 
 from backend.api.auth import get_current_admin
@@ -39,7 +39,10 @@ class DeviceOut(BaseModel):
 
     id: int
     mac_address: str
-    current_ip: str | None
+    current_ip: str | None = Field(validation_alias="reported_ip")
+    ip_source: str | None
+    ip_expires_at: datetime | None
+    last_active_at: datetime | None
     hostname: str | None
     vendor: str | None
     is_trusted: bool

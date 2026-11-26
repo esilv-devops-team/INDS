@@ -109,9 +109,14 @@ function Investigation({ deviceId }) {
 
   if (!device) return <p className={error ? 'error' : 'muted'}>{error || 'Loading device…'}</p>
 
-  const recentlySeen = wasRecentlySeen(device.last_seen_at, updatedAt.getTime())
+  const recentlySeen = device.last_active_at && wasRecentlySeen(device.last_active_at, updatedAt.getTime())
   const facts = [
     ['IP address', device.current_ip || 'Unknown'],
+    ['IP evidence', device.current_ip && ({
+      dhcp_lease: 'DHCP lease',
+      neighbor: 'Reachable LAN neighbor',
+      arp: 'ARP claim',
+    }[device.ip_source] || 'Legacy observation') || 'Unavailable'],
     ['MAC address', device.mac_address],
     ['Manufacturer', device.vendor === 'Randomized' ? 'Private MAC' : device.vendor || 'Unknown'],
     ['First seen', formatTime(device.first_seen_at)],

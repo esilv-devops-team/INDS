@@ -1,0 +1,14 @@
+[Unit]
+Description=INDS restricted routed firewall socket
+
+[Socket]
+ListenStream=/run/inds-firewall.sock
+SocketUser=root
+SocketGroup=inds
+SocketMode=0660
+Accept=yes
+MaxConnections=1
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

@@ -1,12 +1,14 @@
 import os
 import platform
 import time
+from pathlib import Path
 
 import psutil
 from sqlalchemy import func, select, text
 
 from backend.database.base import utc_now
 from backend.database.models import Device, MonitoringRun
+from backend.services.monitoring import configured_interface, routed_lan
 
 BRIDGE_NAME = os.environ.get("INDS_BRIDGE", "br-inds")
 IGNORED_PREFIXES = ("lo", "utun", "awdl", "llw", "anpi", "gif", "stf", "ap", "docker", "veth")
@@ -46,6 +48,7 @@ def read_interfaces():
     stats = psutil.net_if_stats()
     counters = psutil.net_io_counters(pernic=True)
     interfaces = []
+    lan_interface = configured_interface()
 
     for name, stat in stats.items():
         if name.startswith(IGNORED_PREFIXES) or name not in counters:
@@ -65,6 +68,8 @@ def read_interfaces():
             "name": name,
             "is_up": stat.isup,
             "is_bridge": name == BRIDGE_NAME,
+            "role": ("lan" if name == lan_interface else "wan" if name == "eth0" else None)
+                    if lan_interface and routed_lan(lan_interface) else None,
             "speed_mbps": stat.speed or None,
             "rx_bytes": count.bytes_recv,
             "tx_bytes": count.bytes_sent,
@@ -84,6 +89,28 @@ def check_services(session, interfaces):
         services.append({"name": "Database", "state": "ok", "detail": "SQLite answers queries"})
     except Exception:
         services.append({"name": "Database", "state": "down", "detail": "SQLite does not answer"})
+        return services
+
+    interface = configured_interface()
+    if interface and routed_lan(interface):
+        lan_up = any(item["name"] == interface and item["is_up"] for item in interfaces)
+        services.append({"name": "Routed LAN", "state": "ok" if lan_up else "down",
+                         "detail": f"{interface} link {'up' if lan_up else 'down or unavailable'}"})
+        lease_path = Path(os.environ.get("INDS_DHCP_LEASE_FILE", "/var/lib/misc/dnsmasq.leases"))
+        try:
+            with lease_path.open("rb"):
+                lease_detail = "Lease file readable. DHCP service health unverified."
+        except OSError:
+            lease_detail = "Lease file unavailable. Check path and access."
+        services.append({"name": "DHCP evidence", "state": "warn", "detail": lease_detail})
+        run = session.scalar(select(MonitoringRun).order_by(MonitoringRun.id.desc()).limit(1))
+        if run and run.ended_at is None:
+            state, detail = "ok", "Capture run active"
+        elif run and run.stop_reason == "failure":
+            state, detail = "down", "Last capture run failed"
+        else:
+            state, detail = "warn", "Capture turned off"
+        services.append({"name": "Monitoring", "state": state, "detail": detail})
         return services
 
     last_report = session.scalar(select(func.max(Device.last_seen_at)))
