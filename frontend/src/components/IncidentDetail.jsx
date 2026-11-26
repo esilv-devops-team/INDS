@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import { formatTime, readable } from '../format'
 import { usePolling } from '../usePolling'
+import AIAnalysis from './AIAnalysis'
 import { actionName } from '../responseStates'
 import ResponseLifecycle from './ResponseLifecycle'
 import ResponseStatus from './ResponseStatus'
@@ -45,7 +46,11 @@ function describe(event) {
     if (details.from === 'resolved') return 'Reopened as ' + details.to
     return 'Status changed from ' + details.from + ' to ' + details.to
   }
-  if (event.event_type === 'ai_analysis.attached') return 'AI assessment added by ' + details.model
+  if (event.event_type === 'ai_analysis.attached') {
+    return 'AI analysis completed by ' + details.model + (details.risk_level ? ' (risk ' + details.risk_level + ')' : '')
+  }
+  if (event.event_type === 'ai_analysis.failed') return 'AI analysis failed: ' + details.error
+  if (event.event_type === 'ai_analysis.requested') return 'New AI analysis requested'
   if (kind === 'response_action') {
     const text = RESPONSE_EVENTS[name] || readable(name)
     return details.action_type ? text + ' (' + details.action_type.replace('_', ' ') + ')' : text
@@ -65,24 +70,6 @@ function Details({ values }) {
         </div>
       ))}
     </dl>
-  )
-}
-
-function Assessment({ analysis }) {
-  if (!analysis) return <p className="muted">No AI analysis for this incident yet.</p>
-  if (analysis.status === 'pending' || analysis.status === 'running') {
-    return <p className="muted">The AI is analysing this incident...</p>
-  }
-  if (analysis.status === 'failed') return <p className="error">The analysis failed: {analysis.error_message}</p>
-  if (analysis.status === 'cancelled') return <p className="muted">The analysis was cancelled.</p>
-
-  const { summary, ...rest } = analysis.assessment
-  return (
-    <>
-      {summary && <p className="assessment">{summary}</p>}
-      <Details values={rest} />
-      <p className="muted small">{analysis.model}, {formatTime(analysis.completed_at)}</p>
-    </>
   )
 }
 
@@ -109,7 +96,7 @@ function History({ events, error }) {
 }
 
 export default function IncidentDetail({ id, onChange, onClose }) {
-  const { data: incident, error, reload } = usePolling('/api/incidents/' + id)
+  const { data: incident, error, reload, updatedAt } = usePolling('/api/incidents/' + id)
   const { data: history, error: historyError, reload: reloadHistory } = usePolling('/api/incidents/' + id + '/history')
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState('')
@@ -140,6 +127,35 @@ export default function IncidentDetail({ id, onChange, onClose }) {
     if (await send('/api/incidents/' + id, 'PATCH', { status, note })) setNote('')
   }
 
+  function decisionButtons(action) {
+    if (action.approval_status !== 'pending') return null
+    if (confirming?.id === action.id) {
+      return (
+        <div className="confirm">
+          <span>{confirming.decision === 'approved' ? 'Record approval for this proposal?' : 'Reject this proposal?'}</span>
+          <button
+            className="button small"
+            disabled={busy}
+            onClick={() => send('/api/actions/' + action.id + '/decision', 'POST', { decision: confirming.decision })}
+          >
+            Yes
+          </button>
+          <button className="link-button" onClick={() => setConfirming(null)}>Cancel</button>
+        </div>
+      )
+    }
+    return (
+      <div className="buttons">
+        <button className="button small" disabled={busy} onClick={() => setConfirming({ id: action.id, decision: 'approved' })}>
+          Approve
+        </button>
+        <button className="button small secondary" disabled={busy} onClick={() => setConfirming({ id: action.id, decision: 'rejected' })}>
+          Reject
+        </button>
+      </div>
+    )
+  }
+
   if (error && !incident) {
     return (
       <section className="panel">
@@ -150,6 +166,8 @@ export default function IncidentDetail({ id, onChange, onClose }) {
   if (!incident) return <section className="panel muted">Loading...</section>
 
   const device = incident.source_device
+  const latestAnalysis = incident.analyses[0]
+  const aiProposal = latestAnalysis && incident.actions.find((action) => action.ai_analysis_id === latestAnalysis.id)
 
   return (
     <section className="panel incident-detail">
@@ -238,8 +256,15 @@ export default function IncidentDetail({ id, onChange, onClose }) {
         </>
       )}
 
-      <h3>AI assessment</h3>
-      <Assessment analysis={incident.analyses[0]} />
+      <h3>AI analysis</h3>
+      <AIAnalysis
+        analyses={incident.analyses}
+        proposal={aiProposal}
+        decision={aiProposal && decisionButtons(aiProposal)}
+        now={updatedAt}
+        busy={busy}
+        onRetry={() => send('/api/incidents/' + incident.id + '/analysis', 'POST')}
+      />
 
       <h3>Proposed responses</h3>
       {incident.policy && (
@@ -283,30 +308,7 @@ export default function IncidentDetail({ id, onChange, onClose }) {
           </div>
           <p>{action.reason}</p>
 
-          {action.approval_status === 'pending' && confirming?.id !== action.id && (
-            <div className="buttons">
-              <button className="button small" disabled={busy} onClick={() => setConfirming({ id: action.id, decision: 'approved' })}>
-                Approve
-              </button>
-              <button className="button small secondary" disabled={busy} onClick={() => setConfirming({ id: action.id, decision: 'rejected' })}>
-                Reject
-              </button>
-            </div>
-          )}
-
-          {confirming?.id === action.id && (
-            <div className="confirm">
-              <span>{confirming.decision === 'approved' ? 'Record approval for this proposal?' : 'Reject this proposal?'}</span>
-              <button
-                className="button small"
-                disabled={busy}
-                onClick={() => send('/api/actions/' + action.id + '/decision', 'POST', { decision: confirming.decision })}
-              >
-                Yes
-              </button>
-              <button className="link-button" onClick={() => setConfirming(null)}>Cancel</button>
-            </div>
-          )}
+          {decisionButtons(action)}
 
           <ResponseLifecycle action={action} />
           {action.error_message && <p className="error small">{action.error_message}</p>}

@@ -36,6 +36,7 @@ class ActionOut(BaseModel):
     id: int
     incident_id: int | None
     device_id: int | None
+    ai_analysis_id: int | None
     action_type: str
     target_mac: str
     target_ip: str | None

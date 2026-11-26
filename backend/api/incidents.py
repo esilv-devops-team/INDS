@@ -12,6 +12,7 @@ from backend.api.devices import DeviceOut
 from backend.database.base import utc_now
 from backend.database.models import AIAnalysis, Administrator, AuditEvent, Incident, ResponseAction
 from backend.database.session import get_session
+from backend.services.ai_analysis import monitoring_stopped, queue_analysis
 from backend.services.audit import record_event
 from backend.services.response_policy import assess_response
 
@@ -49,6 +50,7 @@ class AnalysisOut(BaseModel):
     assessment: dict | None = Field(validation_alias="assessment_json")
     error_message: str | None
     requested_at: datetime
+    started_at: datetime | None
     completed_at: datetime | None
 
 
@@ -211,3 +213,23 @@ def update_incident(
     incident.resolved_at = utc_now() if data.status == "resolved" else None
     session.commit()
     return build_detail(session, incident)
+
+
+@router.post("/{incident_id}/analysis", response_model=AnalysisOut, status_code=202)
+def request_analysis(incident_id: int, session: Session = Depends(get_session), admin: Administrator = Depends(get_current_admin)):
+    incident = find_incident(session, incident_id)
+    if monitoring_stopped(incident):
+        raise HTTPException(status_code=409, detail="The monitoring run of this incident was stopped, it cannot be analysed anymore.")
+    latest = session.scalar(
+        select(AIAnalysis).where(AIAnalysis.incident_id == incident.id)
+        .order_by(AIAnalysis.requested_at.desc(), AIAnalysis.id.desc()).limit(1)
+    )
+    if latest is not None and latest.status in ("pending", "running"):
+        raise HTTPException(status_code=409, detail="The AI is already analysing this incident.")
+    if latest is not None and latest.status == "succeeded":
+        raise HTTPException(status_code=409, detail="This incident already has an AI analysis.")
+    analysis = queue_analysis(session, incident)
+    record_event(session, "ai_analysis.requested", admin=admin, incident_id=incident.id, ai_analysis_id=analysis.id,
+                 details={"model": analysis.model})
+    session.commit()
+    return analysis
